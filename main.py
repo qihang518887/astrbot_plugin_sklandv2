@@ -2,18 +2,18 @@
 AstrBot Plugin - Skland V2 (森空岛)
 
 Commands:
-- /skland help - 帮助
-- /skland login <token> - 登录并签到
-- /skland qrcode - 扫码登录
-- /skland logout - 登出
-- /skland sign - 手动签到
-- /skland status - 签到状态
-- /skland card - 绑定角色
-- /skland arkgacha - 明日方舟抽卡
-- /skland endgacha - 终末地抽卡
-- /skland import - 自动导入抽卡
-- /skland group - 群签到订阅
-- /skland users - 用户统计
+- /skland - 帮助
+- /sklandlogin <token> - 登录并签到
+- /sklandqrcode - 扫码登录
+- /sklandlogout - 登出
+- /sklandsign - 手动签到
+- /sklandstatus - 签到状态
+- /sklandcard - 绑定角色
+- /sklandarkgacha - 明日方舟抽卡
+- /sklandendgacha - 终末地抽卡
+- /sklandimport - 自动导入抽卡
+- /sklandgroup - 群签到订阅
+- /sklandusers - 用户统计
 
 Config:
 - auto_sign_enabled: 自动签到开关
@@ -247,18 +247,18 @@ class SklandPluginV2(Star):
         return (
             "🎮 森空岛V2 帮助\n"
             "══════════════════\n"
-            "  /skland help - 显示本帮助\n"
-            "  /skland login <token> - 登录并自动导入抽卡(私聊)\n"
-            "  /skland qrcode - 扫码登录\n"
-            "  /skland logout - 登出(私聊)\n"
-            "  /skland sign - 手动签到\n"
-            "  /skland status - 签到状态\n"
-            "  /skland card - 绑定角色\n"
-            "  /skland arkgacha - 明日方舟抽卡\n"
-            "  /skland endgacha - 终末地抽卡\n"
-            "  /skland import - 自动导入抽卡\n"
-            "  /skland group - 群签到订阅\n"
-            "  /skland users - 用户统计(管理)\n"
+            "  /skland - 显示本帮助\n"
+            "  /sklandlogin <token> - 登录并自动导入抽卡(私聊)\n"
+            "  /sklandqrcode - 扫码登录\n"
+            "  /sklandlogout - 登出(私聊)\n"
+            "  /sklandsign - 手动签到\n"
+            "  /sklandstatus - 签到状态\n"
+            "  /sklandcard - 绑定角色\n"
+            "  /sklandarkgacha - 明日方舟抽卡\n"
+            "  /sklandendgacha - 终末地抽卡\n"
+            "  /sklandimport - 自动导入抽卡\n"
+            "  /sklandgroup - 群签到订阅\n"
+            "  /sklandusers - 用户统计(管理)\n"
             "══════════════════\n"
             "💡 登录后会自动导入抽卡记录\n"
             "获取Token: 打开\n"
@@ -326,7 +326,7 @@ class SklandPluginV2(Star):
         yield event.plain_result("正在获取二维码，请稍候...")
         try:
             scan_id = await self.api.get_scan()
-            scan_url = f" hypergryph://scan_login?scanId={scan_id}"
+            scan_url = f"hypergryph://scan_login?scanId={scan_id}"
 
             import qrcode
             from io import BytesIO
