@@ -511,10 +511,7 @@ class SklandPluginV2(Star):
             token = user_data["token"]
             access_token = user_data.get("access_token", token)
 
-            # Step 1: 获取 web token (type=1) 用于 role token API
             grant_code_web = await self.api.get_grant_code(access_token, 1)
-
-            # Step 2: 获取 skland code (type=0) 用于获取绑定列表
             grant_code_skland = await self.api.get_grant_code(access_token, 0)
             cred = await self.api.get_credential(grant_code_skland)
             bindings = await self.api.get_binding_list(cred)
@@ -553,47 +550,60 @@ class SklandPluginV2(Star):
                 yield event.plain_result("❌ 暂无抽卡记录")
                 return
 
-            pools_dict = {}
-            for record in all_records[:100]:
-                pool_name = record.get("poolName", "未知")
-                if pool_name not in pools_dict:
-                    pools_dict[pool_name] = []
-                pools_dict[pool_name].append({
-                    "name": record.get("charName", "未知"),
-                    "rarity": record.get("rarity", 3),
-                    "is_new": record.get("isNew", False),
-                })
+            from .gacha_utils import GachaRecordItem, group_gacha_records
+            from .render import render_gacha_history
 
-            pools = []
-            for name, pulls in pools_dict.items():
-                pools.append({
-                    "name": name[:20],
-                    "count": len(pulls),
-                    "pulls": pulls[:20]
-                })
+            record_items = [
+                GachaRecordItem(
+                    pool_id=r.get("poolId", ""),
+                    pool_name=r.get("poolName", ""),
+                    char_id=r.get("charId", ""),
+                    char_name=r.get("charName", ""),
+                    rarity=r.get("rarity", 3),
+                    is_new=r.get("isNew", False),
+                    gacha_ts=int(r.get("gachaTs", "0")) // 1000,
+                    pos=r.get("pos", 0),
+                )
+                for r in all_records
+            ]
 
-            total_pulls = len(all_records)
-            six_count = sum(1 for r in all_records if r.get("rarity", 0) >= 5)
-            six_rate = (six_count / total_pulls * 100) if total_pulls > 0 else 0
+            grouped = group_gacha_records(record_items, getattr(self, "_gacha_data", None))
 
             try:
-                from .render import render_gacha_history
-                img_data = await render_gacha_history(
-                    nickname=ark_binding.nickname,
-                    server="官服" if ark_binding.game_id == 1 else "B服",
-                    avatar_url="https://prts.wiki/images/avator/char_001_chen.png",
-                    level=user_data.get("level", 1),
-                    pools=pools,
-                    total_pulls=total_pulls,
-                    six_rate=round(six_rate, 1),
-                    up_rate=0,
+                from .skland_api import CRED
+                status_data = await self.api.ark_card(
+                    CRED(cred=cred.cred, token=cred.token), ark_binding.uid
                 )
-                if img_data:
-                    yield event.chain_result([Comp.Image.fromBytes(img_data)])
-                else:
-                    yield event.plain_result(self._format_gacha_text(pools, total_pulls, six_rate))
-            except Exception as e:
-                yield event.plain_result(self._format_gacha_text(pools, total_pulls, six_rate))
+                status = status_data.get("status", {}) if status_data else {}
+                status_model = type("Status", (), {
+                    "avatar": type("Avatar", (), {"url": status.get("avatar", {}).get("url", "")})(),
+                    "level": status.get("level", 1),
+                })()
+            except Exception:
+                status_model = type("Status", (), {
+                    "avatar": type("Avatar", (), {"url": ""})(),
+                    "level": 1,
+                })()
+
+            char_model = type("Character", (), {
+                "nickname": ark_binding.nickname,
+                "channel_master_id": getattr(ark_binding, "game_id", "1"),
+                "uid": ark_binding.uid,
+            })()
+
+            img_data = await render_gacha_history(
+                record=grouped,
+                character=char_model,
+                status=status_model,
+                start_index=0,
+                end_index=None,
+            )
+
+            if img_data:
+                import astrbot.api.message_components as Comp
+                yield event.chain_result([Comp.Image.fromBytes(img_data)])
+            else:
+                yield event.plain_result(f"📊 抽卡记录统计\n总抽数: {len(all_records)}")
         except Exception as e:
             logger.error(f"查询抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
@@ -636,20 +646,22 @@ class SklandPluginV2(Star):
             for role in ef_binding.roles:
                 role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
                 server_id = role.get("serverId", ef_binding.uid)
-                for pool_type_raw in ("char", "weapon"):
-                    try:
-                        is_weapon = pool_type_raw == "weapon"
-                        ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                        params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
-                        client = await self.api._get_client()
-                        response = await client.get(ef_gacha_url, params=params)
-                        data = response.json()
-                        if data.get("code") == 0 and data.get("data"):
-                            gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
-                            for item in (gacha_list or []):
-                                ef_records.append(item)
-                    except Exception:
-                        continue
+                ef_pool_types = {
+                    "char": ["E_CharacterGachaPoolType_Standard", "E_CharacterGachaPoolType_Special", "E_CharacterGachaPoolType_Beginner"],
+                    "weapon": [""],
+                }
+                for pool_type_raw, pool_type_values in ef_pool_types.items():
+                    for pool_type_val in pool_type_values:
+                        try:
+                            is_weapon = pool_type_raw == "weapon"
+                            ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                            ef_records.extend(
+                                await self._fetch_all_ef_gacha_records(
+                                    ef_gacha_url, role_token, server_id, pool_type_val if not is_weapon else None
+                                )
+                            )
+                        except Exception:
+                            continue
 
             if not ef_records:
                 yield event.plain_result("❌ 暂无终末地抽卡记录")
@@ -679,6 +691,29 @@ class SklandPluginV2(Star):
         except Exception as e:
             logger.error(f"查询终末地抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
+
+    async def _fetch_all_ef_gacha_records(self, url: str, role_token: str, server_id: str, pool_type: str | None) -> list:
+        records = []
+        seq_id = None
+        client = await self.api._get_client()
+        while True:
+            params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
+            if pool_type is not None:
+                params["pool_type"] = pool_type
+            if seq_id is not None:
+                params["seq_id"] = seq_id
+            response = await client.get(url, params=params)
+            data = response.json()
+            if data.get("code") != 0 or not data.get("data"):
+                break
+            gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
+            if not gacha_list:
+                break
+            records.extend(gacha_list)
+            if not data["data"].get("hasMore"):
+                break
+            seq_id = gacha_list[-1].get("seqId") if isinstance(gacha_list[-1], dict) else str(gacha_list[-1].seqId)
+        return records
 
     # ---------- gacha helpers ----------
     def _format_gacha_text(self, pools: list, total: int, six_rate: float) -> str:
@@ -755,20 +790,22 @@ class SklandPluginV2(Star):
                         role_token = await self.api.get_role_token(binding.uid, grant_code_web)
                         for role in binding.roles:
                             server_id = role.get("serverId", binding.uid)
-                            for pool_type_raw in ("char", "weapon"):
-                                try:
-                                    is_weapon = pool_type_raw == "weapon"
-                                    ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                                    params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
-                                    client = await self.api._get_client()
-                                    response = await client.get(ef_gacha_url, params=params)
-                                    data = response.json()
-                                    if data.get("code") == 0 and data.get("data"):
-                                        gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
-                                        for item in (gacha_list or []):
-                                            ef_records.append(item)
-                                except Exception as inner_e:
-                                    logger.error(f"[auto_import] 终末地抽卡拉取失败: {inner_e}")
+                            ef_pool_types = {
+                                "char": ["E_CharacterGachaPoolType_Standard", "E_CharacterGachaPoolType_Special", "E_CharacterGachaPoolType_Beginner"],
+                                "weapon": [""],
+                            }
+                            for pool_type_raw, pool_type_values in ef_pool_types.items():
+                                for pool_type_val in pool_type_values:
+                                    try:
+                                        is_weapon = pool_type_raw == "weapon"
+                                        ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                                        ef_records.extend(
+                                            await self._fetch_all_ef_gacha_records(
+                                                ef_gacha_url, role_token, server_id, pool_type_val if not is_weapon else None
+                                            )
+                                        )
+                                    except Exception as inner_e:
+                                        logger.error(f"[auto_import] 终末地抽卡拉取失败: {inner_e}")
 
                 summary_parts = []
                 if ak_records:
@@ -800,7 +837,6 @@ class SklandPluginV2(Star):
                 logger.error(f"自动导入抽卡记录失败: {e}")
                 logger.exception("[auto_import] 完整异常信息:")
 
-    # ---------- import ----------
     @filter.command("sklandimport")
     async def skland_import(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()

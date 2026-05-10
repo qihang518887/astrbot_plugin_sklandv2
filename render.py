@@ -32,11 +32,9 @@ class Renderer:
         return cls._instance
 
     async def initialize(self):
-        """初始化playwright"""
         if not PLAYWRIGHT_AVAILABLE:
             logger.warning("Playwright not available")
             return False
-
         if self._playwright is None:
             try:
                 self._playwright = await async_playwright().start()
@@ -52,7 +50,6 @@ class Renderer:
         return True
 
     async def close(self):
-        """关闭playwright"""
         if self._browser:
             await self._browser.close()
         if self._playwright:
@@ -62,13 +59,10 @@ class Renderer:
         logger.info("Playwright closed")
 
     async def render_html(self, html_content: str, viewport: dict = None) -> Optional[bytes]:
-        """将HTML渲染为图片"""
         if not await self.initialize():
             return None
-
         if viewport is None:
             viewport = {"width": 1200, "height": 1}
-
         try:
             page = await self._browser.new_page(
                 viewport=viewport,
@@ -76,7 +70,6 @@ class Renderer:
             )
             await page.set_content(html_content, wait_until="networkidle")
             await asyncio.sleep(0.5)
-
             screenshot = await page.screenshot(type="png", full_page=True)
             await page.close()
             return screenshot
@@ -84,12 +77,14 @@ class Renderer:
             logger.error(f"Failed to render HTML: {e}")
             return None
 
-    async def render_template(self, template_name: str, context: dict, viewport: dict = None) -> Optional[bytes]:
-        """渲染Jinja2模板为图片"""
+    async def render_template(self, template_name: str, context: dict, filters: dict = None,
+                              viewport: dict = None) -> Optional[bytes]:
+        """渲染Jinja2模板为图片，支持自定义过滤器"""
         try:
             from jinja2 import Environment, FileSystemLoader
-
             env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+            if filters:
+                env.filters.update(filters)
             template = env.get_template(template_name)
             html_content = template.render(**context)
             return await self.render_html(html_content, viewport)
@@ -99,28 +94,35 @@ class Renderer:
 
 
 async def render_gacha_history(
-    nickname: str,
-    server: str,
-    avatar_url: str,
-    level: int,
-    pools: list,
-    total_pulls: int = 0,
-    six_rate: float = 0.0,
-    up_rate: float = 0.0,
+    record,
+    character,
+    status,
+    gacha_data = None,
+    start_index: int = 0,
+    end_index: int = None,
+    cache_dir: Path = None,
 ) -> Optional[bytes]:
-    """渲染抽卡历史记录为图片"""
+    """使用nonebot样式渲染抽卡历史记录"""
+    from .filters import charId_to_avatarUrl, format_timestamp_md
+
     renderer = Renderer()
-    context = {
-        "nickname": nickname,
-        "server": server,
-        "avatar_url": avatar_url,
-        "level": level,
-        "pools": pools,
-        "total_pulls": total_pulls,
-        "six_rate": six_rate,
-        "up_rate": up_rate,
+    ctx = {
+        "record": record,
+        "character": character,
+        "status": status,
+        "start_index": start_index,
+        "end_index": end_index,
     }
-    return await renderer.render_template("gacha.html", context, {"width": 800, "height": 1})
+    flt = {
+        "charId_to_avatarUrl": charId_to_avatarUrl,
+        "format_timestamp_md": format_timestamp_md,
+    }
+    return await renderer.render_template(
+        "gacha.html.jinja2",
+        ctx,
+        filters=flt,
+        viewport={"width": 720, "height": 1},
+    )
 
 
 renderer = Renderer()
