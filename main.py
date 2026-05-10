@@ -267,7 +267,7 @@ class SklandPluginV2(Star):
         )
 
     # ---------- login ----------
-    @filter.command_group("skland login")
+    @filter.command("sklandlogin")
     async def skland_login(self, event: AstrMessageEvent, token: str = ""):
         group_id = getattr(event.message_obj, "group_id", None)
         if group_id:
@@ -321,7 +321,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 登录失败: {str(e)}")
 
     # ---------- qrcode ----------
-    @filter.command_group("skland qrcode")
+    @filter.command("sklandqrcode")
     async def skland_qrcode(self, event: AstrMessageEvent):
         yield event.plain_result("正在获取二维码，请稍候...")
         try:
@@ -372,7 +372,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 扫码登录失败: {str(e)}")
 
     # ---------- logout ----------
-    @filter.command_group("skland logout")
+    @filter.command("sklandlogout")
     async def skland_logout(self, event: AstrMessageEvent):
         group_id = getattr(event.message_obj, "group_id", None)
         if group_id:
@@ -389,7 +389,7 @@ class SklandPluginV2(Star):
             yield event.plain_result("您尚未绑定森空岛账号")
 
     # ---------- sign ----------
-    @filter.command_group("skland sign")
+    @filter.command("sklandsign")
     async def skland_sign(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
@@ -419,7 +419,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 签到失败: {str(e)}")
 
     # ---------- status ----------
-    @filter.command_group("skland status")
+    @filter.command("sklandstatus")
     async def skland_status(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         group_id = getattr(event.message_obj, "group_id", None)
@@ -461,7 +461,7 @@ class SklandPluginV2(Star):
                 yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
     # ---------- card ----------
-    @filter.command_group("skland card")
+    @filter.command("sklandcard")
     async def skland_card(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
@@ -496,7 +496,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
     # ---------- arkgacha ----------
-    @filter.command_group("skland arkgacha")
+    @filter.command("sklandarkgacha")
     async def skland_arkgacha(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
@@ -599,7 +599,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
     # ---------- endgacha ----------
-    @filter.command_group("skland endgacha")
+    @filter.command("sklandendgacha")
     async def skland_endgacha(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
@@ -801,7 +801,7 @@ class SklandPluginV2(Star):
                 logger.exception("[auto_import] 完整异常信息:")
 
     # ---------- import ----------
-    @filter.command_group("skland import")
+    @filter.command("sklandimport")
     async def skland_import(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
@@ -875,7 +875,7 @@ class SklandPluginV2(Star):
             yield event.plain_result(f"❌ 自动导入失败: {str(e)}")
 
     # ---------- group ----------
-    @filter.command_group("skland group")
+    @filter.command("sklandgroup")
     async def skland_group(self, event: AstrMessageEvent):
         group_id = getattr(event.message_obj, "group_id", None)
         if not group_id:
@@ -897,7 +897,7 @@ class SklandPluginV2(Star):
             yield event.plain_result("✅ 已订阅每日签到通知")
 
     # ---------- users ----------
-    @filter.command_group("skland users")
+    @filter.command("sklandusers")
     async def skland_users(self, event: AstrMessageEvent):
         if not event.is_admin():
             yield event.plain_result("❌ 仅管理员可用")
