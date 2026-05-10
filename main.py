@@ -28,6 +28,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.config import put_config
+from astrbot.api import AstrBotConfig
 import asyncio
 import random
 import json
@@ -706,7 +707,7 @@ class SklandPluginV2(Star):
             lines.append("")
         return "\n".join(lines)
 
-async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
+    async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
         async with GACHA_API_SEMAPHORE:
             try:
                 user_id = event.get_sender_id()
@@ -749,15 +750,10 @@ async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
                         categories = await self.api.get_gacha_categories(
                             binding.uid, role_token, access_token, ak_cookie
                         )
-                        logger.info(f"[auto_import] 获取到 {len(categories)} 个抽卡类别: {[c.get('name', c.get('id')) for c in categories[:5]]}")
+                        logger.info(f"[auto_import] 获取到 {len(categories)} 个抽卡类别")
                         for cate in categories[:3]:
                             cate_id = str(cate.get("id"))
-                            pool_name = cate.get("name", cate_id)
-                            logger.debug(f"[auto_import] 获取卡池 {cate_id} ({pool_name})")
-                            records = await self.api.get_all_gacha_records(
-                                binding.uid, role_token, access_token, ak_cookie, cate_id
-                            )
-                            ak_records.extend(records)
+                            logger.debug(f"[auto_import] 获取卡池 {cate_id}")
                             records = await self.api.get_all_gacha_records(
                                 binding.uid, role_token, access_token, ak_cookie, cate_id
                             )
