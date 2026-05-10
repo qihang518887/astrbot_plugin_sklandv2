@@ -13,7 +13,11 @@ class GachaPool(GachaTable):
     @classmethod
     def sort_records(cls, values) -> Any:
         if "records" in values:
-            values["records"] = sorted(values["records"], key=lambda x: x.gacha_ts, reverse=True)
+            records = values["records"]
+            if records and isinstance(records[0], dict):
+                values["records"] = sorted(records, key=lambda x: x["gacha_ts"], reverse=True)
+            else:
+                values["records"] = sorted(records, key=lambda x: x.gacha_ts, reverse=True)
         return values
 
     @property

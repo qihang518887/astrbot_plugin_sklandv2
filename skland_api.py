@@ -757,14 +757,16 @@ class SklandAPI:
         return None
 
     async def get_all_gacha_records(self, uid: str, role_token: str, access_token: str, ak_cookie: str, category: str):
-        """获取所有抽卡记录（自动分页）"""
+        """获取所有抽卡记录（自动分页，游标为最后一条的 gachaTs/pos）
+        
+        与 nonebot 原版逻辑一致：API 分页游标是排他的（exclusive），
+        下一页不会包含游标记录本身，因此无需手动去重。
+        """
         all_records = []
         page = await self.get_gacha_history(uid, role_token, access_token, ak_cookie, category)
         if not page:
             return all_records
-
-        prev_ts = None
-        prev_pos = None
+        prev_ts, prev_pos = None, None
         while page:
             gacha_list = page.get("gachaList") or page.get("list", [])
             if not gacha_list:
@@ -772,13 +774,17 @@ class SklandAPI:
             all_records.extend(gacha_list)
             if not page.get("hasMore"):
                 break
-            next_ts = str(page.get("nextTs") or page.get("gachaTs") or "")
-            next_pos = page.get("nextPos") or page.get("pos")
+            last = gacha_list[-1]
+            next_ts = str(last.get("gachaTs", ""))
+            next_pos = last.get("pos")
+            if not next_ts or next_pos is None:
+                break
+            # 防止无限循环：游标未变化则退出
             if (next_ts, next_pos) == (prev_ts, prev_pos):
                 break
             prev_ts, prev_pos = next_ts, next_pos
             page = await self.get_gacha_history(
                 uid, role_token, access_token, ak_cookie, category,
-                gacha_ts=next_ts or None, pos=next_pos
+                gacha_ts=next_ts, pos=next_pos
             )
         return all_records

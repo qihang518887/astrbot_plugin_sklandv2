@@ -61,5 +61,10 @@ class GachaGroup(BaseModel):
     @classmethod
     def sort_pulls(cls, values) -> Any:
         if "pulls" in values:
-            values["pulls"] = sorted(values["pulls"], key=lambda x: x.pos, reverse=True)
+            # 兼容处理：pulls 可能是 GachaPull 实例列表或字典列表
+            pulls = values["pulls"]
+            if pulls and isinstance(pulls[0], dict):
+                values["pulls"] = sorted(pulls, key=lambda x: x["pos"], reverse=True)
+            else:
+                values["pulls"] = sorted(pulls, key=lambda x: x.pos, reverse=True)
         return values

@@ -553,6 +553,18 @@ class SklandPluginV2(Star):
             from .gacha_utils import GachaRecordItem, group_gacha_records
             from .render import render_gacha_history
 
+            # 去重：(gacha_ts_sec, pos) 唯一标识一条记录
+            seen = set()
+            unique_records = []
+            for r in all_records:
+                ts_sec = int(r.get("gachaTs", "0")) // 1000
+                pos = r.get("pos", 0)
+                key = (ts_sec, pos)
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique_records.append(r)
+
             record_items = [
                 GachaRecordItem(
                     pool_id=r.get("poolId", ""),
@@ -564,7 +576,7 @@ class SklandPluginV2(Star):
                     gacha_ts=int(r.get("gachaTs", "0")) // 1000,
                     pos=r.get("pos", 0),
                 )
-                for r in all_records
+                for r in unique_records
             ]
 
             grouped = group_gacha_records(record_items, getattr(self, "_gacha_data", None))
