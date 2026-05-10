@@ -667,31 +667,34 @@ class SklandAPI:
         return response["data"]["code"] if token_type == 0 else response["data"]["token"]
 
     async def get_role_token(self, uid: str, grant_code: str) -> str:
-        """获取角色Token"""
+        """获取角色Token (使用 binding API)"""
         response = await self._request(
             "POST",
-            "https://arknights.hypergryph.com/api/v1/user/auth/roleToken",
-            headers={"User-Agent": USER_AGENT},
-            json_data={"code": grant_code, "uid": uid},
+            "https://binding-api-account-prod.hypergryph.com/account/binding/v1/u8_token_by_uid",
+            headers={"User-Agent": USER_AGENT, "content-type": "application/json"},
+            json_data={"uid": uid, "token": grant_code},
         )
+        logger.debug(f"get_role_token response: {json.dumps(response, ensure_ascii=False)}")
         if response.get("code") != 0 and response.get("status") != 0:
             raise Exception(f"获取角色Token失败: {response.get('message', response.get('msg', '未知错误'))}")
-        return response["data"]["roleToken"]
+        return response.get("data", {}).get("token") or response.get("data", {}).get("roleToken", "")
 
-    async def get_ak_cookie(self, role_token: str) -> str:
-        """获取明日方舟Cookie"""
+async def get_ak_cookie(self, role_token: str) -> str:
+        """获取明日方舟官网cookie (ak-user-center)"""
         client = await self._get_client()
-        response = await client.get(
-            "https://arknights.hypergryph.com/api/v1/user/setting",
-            headers={
-                "User-Agent": USER_AGENT,
-                "X-Role-Token": role_token,
-            },
+        response = await client.post(
+            "https://ak.hypergryph.com/user/api/role/login",
+            headers={"content-type": "application/json", "accept": "application/json"},
+            json={"token": role_token},
         )
+        logger.debug(f"get_ak_cookie status: {response.status_code}")
         if response.status_code == 200:
-            data = response.json()
-            if data.get("code") == 0:
-                return data["data"]["cookie"]
+            cookie = response.cookies.get("ak-user-center")
+            if cookie:
+                logger.debug(f"get_ak_cookie got cookie: {cookie}")
+                return cookie
+        response_data = response.json()
+        logger.debug(f"get_ak_cookie full response: {json.dumps(response_data, ensure_ascii=False)}")
         return ""
 
     async def get_gacha_categories(self, uid: str, role_token: str, access_token: str, ak_cookie: str) -> list:

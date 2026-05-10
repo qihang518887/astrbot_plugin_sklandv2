@@ -1,13 +1,19 @@
-"""
+﻿"""
 AstrBot Plugin - Skland V2 (森空岛)
 
 Commands:
-- skland: 查看帮助
-- sklandlogin: 登录并签到
-- sklandlogout: 登出
-- sklandcard: 查询角色卡片
-- sklandrogue: 查询肉鸽战绩
-- sklandsign: 手动签到
+- /skland help - 帮助
+- /skland login <token> - 登录并签到
+- /skland qrcode - 扫码登录
+- /skland logout - 登出
+- /skland sign - 手动签到
+- /skland status - 签到状态
+- /skland card - 绑定角色
+- /skland ark chouka - 明日方舟抽卡
+- /skland end chouka - 终末地抽卡
+- /skland import <url> - 导入抽卡
+- /skland group - 群签到订阅
+- /skland users - 用户统计
 
 Config:
 - auto_sign_enabled: 自动签到开关
@@ -17,9 +23,8 @@ Config:
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from astrbot.core.star.filter.permission import PermissionType
 import astrbot.api.message_components as Comp
-from astrbot.api import logger, AstrBotConfig
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.config import put_config
@@ -27,7 +32,7 @@ import asyncio
 import random
 import json
 
-from .skland_api import SklandAPI, UserBinding, Credential
+from .skland_api import SklandAPI, UserBinding, Credential, logger as api_logger
 
 PLUGIN_NAME = "astrbot_plugin_sklandv2"
 GACHA_API_SEMAPHORE = asyncio.Semaphore(3)
@@ -169,7 +174,6 @@ class SklandPluginV2(Star):
         await self._notify_subscribed_groups(users)
 
     async def _notify_subscribed_groups(self, users: dict):
-        """向已订阅的群发送签到汇总"""
         groups = await self.get_kv_data("sklandv2_groups", {})
         if not groups:
             return
@@ -229,55 +233,41 @@ class SklandPluginV2(Star):
                 lines.append(f"{r.game} ❌: {r.error}")
         return "\n".join(lines)
 
-    @filter.command("sklandgroup")
-    async def skland_group(self, event: AstrMessageEvent):
-        """订阅/取消订阅群签到通知"""
-        group_id = getattr(event.message_obj, "group_id", None)
-        if not group_id:
-            yield event.plain_result("请在群内使用此命令")
-            return
-
-        groups = await self.get_kv_data("sklandv2_groups", {})
-        gid = str(group_id)
-        if gid in groups:
-            del groups[gid]
-            await self.put_kv_data("sklandv2_groups", groups)
-            yield event.plain_result("✅ 已取消本群签到通知订阅")
-        else:
-            groups[gid] = {
-                "umo": event.unified_msg_origin,
-                "name": f"群{group_id}",
-            }
-            await self.put_kv_data("sklandv2_groups", groups)
-            yield event.plain_result("✅ 已订阅每日签到通知")
-
     @filter.command("skland")
-    async def skland_help(self, event: AstrMessageEvent):
-        """森空岛V2帮助"""
-        yield event.plain_result(
+    async def skland(self, event: AstrMessageEvent):
+        """森空岛主命令"""
+        text = event.message_str.strip()
+        parts = text.split()
+        if len(parts) <= 1 or len(parts) >= 1 and len(parts) <= 2 and Parts[1] in ("help", "help"):
+            yield event.plain_result(self._help_text())
+        else:
+            yield event.plain_result(self._help_text())
+
+    def _help_text(self) -> str:
+        return (
             "🎮 森空岛V2 帮助\n"
             "══════════════════\n"
-            "📝 命令列表:\n"
-            "  /skland - 显示本帮助\n"
-            "  /sklandlogin <token> - 登录并签到\n"
-            "  /sklandqrcode - 扫码登录\n"
-            "  /sklandlogout - 登出\n"
-            "  /sklandsign - 手动签到\n"
-            "  /sklandcard - 查询角色卡片\n"
-            "  /sklandrogue <主题> - 查询肉鸽战绩\n"
-            "  /sklandstatus - 查看签到状态\n"
-            "  /sklandgacha - 查询抽卡记录\n"
-            "  /sklandimport <url> - 导入抽卡记录\n"
-            "  /sklandgroup - 订阅/取消群签到通知\n"
-            "  /sklandusers - 用户统计(管理员)\n"
+            "  /skland help - 显示本帮助\n"
+            "  /skland login <token> - 登录并自动导入抽卡(私聊)\n"
+            "  /skland qrcode - 扫码登录\n"
+            "  /skland logout - 登出(私聊)\n"
+            "  /skland sign - 手动签到\n"
+            "  /skland status - 签到状态\n"
+            "  /skland card - 绑定角色\n"
+            "  /skland ark chouka - 明日方舟抽卡\n"
+            "  /skland end chouka - 终末地抽卡\n"
+            "  /skland import <url> - 导入抽卡\n"
+            "  /skland group - 群签到订阅\n"
+            "  /skland users - 用户统计(管理)\n"
             "══════════════════\n"
-            "📌 获取Token方法:\n"
-            "  1. 登录 https://web-api.hypergryph.com/account/info/hg\n"
-            "  2. 复制 content 字段的值\n"
-            "  3. 使用 /sklandlogin <token> 登录"
+            "💡 登录后会自动导入抽卡记录\n"
+            "获取Token: 打开\n"
+            "https://web-api.hypergryph.com/account/info/hg\n"
+            "复制 content 字段"
         )
 
-    @filter.command("sklandlogin")
+    # ---------- login ----------
+    @filter.command_group("skland login")
     async def skland_login(self, event: AstrMessageEvent, token: str = ""):
         group_id = getattr(event.message_obj, "group_id", None)
         if group_id:
@@ -299,7 +289,7 @@ class SklandPluginV2(Star):
                 "请先获取token:\n"
                 "1. 登录 https://web-api.hypergryph.com/account/info/hg\n"
                 "2. 复制 content 字段的值\n"
-                "3. 使用 /sklandlogin <token> 登录"
+                "3. 使用 /skland login <token> 登录"
             )
             return
 
@@ -330,29 +320,13 @@ class SklandPluginV2(Star):
             logger.error(f"sklandlogin失败: {e}")
             yield event.plain_result(f"❌ 登录失败: {str(e)}")
 
-    @filter.command("sklandlogout")
-    async def skland_logout(self, event: AstrMessageEvent):
-        group_id = getattr(event.message_obj, "group_id", None)
-        if group_id:
-            yield event.plain_result("请在私聊中使用此命令")
-            return
-
-        user_id = event.get_sender_id()
-        users = await self.get_kv_data("sklandv2_users", {})
-        if user_id in users:
-            del users[user_id]
-            await self.put_kv_data("sklandv2_users", users)
-            yield event.plain_result("✅ 已退出登录并清除绑定信息")
-        else:
-            yield event.plain_result("您尚未绑定森空岛账号")
-
-    @filter.command("sklandqrcode")
+    # ---------- qrcode ----------
+    @filter.command_group("skland qrcode")
     async def skland_qrcode(self, event: AstrMessageEvent):
-        """扫码登录森空岛"""
         yield event.plain_result("正在获取二维码，请稍候...")
         try:
             scan_id = await self.api.get_scan()
-            scan_url = f"hypergryph://scan_login?scanId={scan_id}"
+            scan_url = f" hypergryph://scan_login?scanId={scan_id}"
 
             import qrcode
             from io import BytesIO
@@ -361,7 +335,6 @@ class SklandPluginV2(Star):
             qr.save(buf, format='PNG')
             buf.seek(0)
 
-            import astrbot.api.message_components as Comp
             yield event.plain_result("请使用森空岛APP扫描二维码登录\n二维码有效时间2分钟")
             yield event.chain_result([Comp.Image.fromBytes(buf.getvalue())])
 
@@ -389,7 +362,7 @@ class SklandPluginV2(Star):
                         elif r.game == "终末地" and self._is_signed_today(r):
                             users[user_id]["last_sign"]["endfield"] = datetime.now().strftime("%Y-%m-%d")
                     await self.put_kv_data("sklandv2_users", users)
-                    yield event.plain_result(f"✅ 扫码成功！\n{self._format_sign_status(results, nickname)}\n正在自动导入抽卡记录，请稍候...")
+                    yield event.plain_result(f"✅ 扫码成功！\n{self._format_sign_status(results, nickname)}\n正在自动导入抽卡记录...")
                     asyncio.create_task(self._auto_import_all_gacha(token, event))
                     return
 
@@ -398,15 +371,32 @@ class SklandPluginV2(Star):
             logger.error(f"扫码登录失败: {e}")
             yield event.plain_result(f"❌ 扫码登录失败: {str(e)}")
 
-    @filter.command("sklandsign")
+    # ---------- logout ----------
+    @filter.command_group("skland logout")
+    async def skland_logout(self, event: AstrMessageEvent):
+        group_id = getattr(event.message_obj, "group_id", None)
+        if group_id:
+            yield event.plain_result("请在私聊中使用此命令")
+            return
+
+        user_id = event.get_sender_id()
+        users = await self.get_kv_data("sklandv2_users", {})
+        if user_id in users:
+            del users[user_id]
+            await self.put_kv_data("sklandv2_users", users)
+            yield event.plain_result("✅ 已退出登录")
+        else:
+            yield event.plain_result("您尚未绑定森空岛账号")
+
+    # ---------- sign ----------
+    @filter.command_group("skland sign")
     async def skland_sign(self, event: AstrMessageEvent):
-        """手动签到"""
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
 
         if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
             return
 
         yield event.plain_result("正在签到，请稍候...")
@@ -428,9 +418,9 @@ class SklandPluginV2(Star):
             logger.error(f"签到失败: {e}")
             yield event.plain_result(f"❌ 签到失败: {str(e)}")
 
-    @filter.command("sklandstatus")
+    # ---------- status ----------
+    @filter.command_group("skland status")
     async def skland_status(self, event: AstrMessageEvent):
-        """查看签到状态"""
         user_id = event.get_sender_id()
         group_id = getattr(event.message_obj, "group_id", None)
         users = await self.get_kv_data("sklandv2_users", {})
@@ -445,11 +435,9 @@ class SklandPluginV2(Star):
                     continue
                 try:
                     results, nickname = await self.api.do_full_sign_in(user_data["token"])
-
                     config = self._get_config()
                     if not config.get("show_player_name", True) or not nickname:
                         nickname = user_data.get("last_username", "未知")
-
                     ak_signed = user_data.get("last_sign", {}).get("arknights")
                     ef_signed = user_data.get("last_sign", {}).get("endfield")
                     ak_icon = "✅" if ak_signed else "❌"
@@ -462,7 +450,7 @@ class SklandPluginV2(Star):
         else:
             user_data = users.get(user_id)
             if not user_data:
-                yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
+                yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
                 return
 
             try:
@@ -472,21 +460,19 @@ class SklandPluginV2(Star):
             except Exception as e:
                 yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
-    @filter.command("sklandcard")
+    # ---------- card ----------
+    @filter.command_group("skland card")
     async def skland_card(self, event: AstrMessageEvent):
-        """查询角色卡片"""
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
 
         if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
             return
 
         yield event.plain_result("正在查询角色卡片，请稍候...")
         try:
-            from .skland_api import Credential
-
             token = user_data["token"]
             auth_code = await self.api.get_authorization(token)
             cred = await self.api.get_credential(auth_code)
@@ -504,137 +490,37 @@ class SklandPluginV2(Star):
                 line += f"   渠道: {binding.channel_name}"
                 lines.append(line)
 
-            await self.put_kv_data("sklandv2_users", users)
             yield event.plain_result("\n".join(lines))
         except Exception as e:
             logger.error(f"查询卡片失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
-    @filter.command("sklandrogue")
-    async def skland_rogue(self, event: AstrMessageEvent, topic: str = ""):
-        """查询肉鸽战绩"""
+    # ---------- ark chouka ----------
+    @filter.command_group("skland ark")
+    async def skland_ark(self, event: AstrMessageEvent):
+        yield event.plain_result("使用方法: /skland ark chouka")
+
+    @filter.command_group("skland ark chouka")
+    async def skland_ark_chouka(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
 
         if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
             return
 
-        topic_id = self._get_topic_id(topic)
-        if not topic_id:
-            yield event.plain_result(
-                "请指定肉鸽主题:\n"
-                "/sklandrogue 傀影\n"
-                "/sklandrogue 水月\n"
-                "/sklandrogue 萨米\n"
-                "/sklandrogue 萨卡兹\n"
-                "/sklandrogue 界园"
-            )
-            return
-
-        yield event.plain_result("正在查询肉鸽战绩，请稍候...")
-        try:
-            from .skland_api import Credential
-
-            token = user_data["token"]
-            auth_code = await self.api.get_authorization(token)
-            cred = await self.api.get_credential(auth_code)
-            bindings = await self.api.get_binding_list(cred)
-
-            ark_binding = None
-            for b in bindings:
-                if b.app_code == "arknights":
-                    ark_binding = b
-                    break
-
-            if not ark_binding:
-                yield event.plain_result("❌ 未绑定明日方舟角色")
-                return
-
-            rogue_data = await self.api.get_rogue_data(cred, ark_binding.uid, topic_id)
-            if not rogue_data:
-                yield event.plain_result("❌ 查询肉鸽数据失败")
-                return
-
-            lines = [f"📊 肉鸽战绩 - {topic}", "═══════════════"]
-
-            if "recentScore" in rogue_data:
-                score = rogue_data["recentScore"]
-                lines.append(f"最近一次:")
-                lines.append(f"  通关: {'是' if score.get('isCompleted') else '否'}")
-                lines.append(f"  招募数: {score.get('recruitNum', 0)}")
-                lines.append(f"  剧情数: {score.get('talkNum', 0)}")
-
-            if "bestScore" in rogue_data:
-                best = rogue_data["bestScore"]
-                lines.append(f"\n最高记录:")
-                lines.append(f"  通关: {'是' if best.get('isCompleted') else '否'}")
-
-            yield event.plain_result("\n".join(lines))
-        except Exception as e:
-            logger.error(f"查询肉鸽失败: {e}")
-            yield event.plain_result(f"❌ 查询失败: {str(e)}")
-
-    def _get_topic_id(self, topic: str) -> str:
-        topic_map = {
-            "傀影": "phantom",
-            "水月": "mizuki",
-            "萨米": "sami",
-            "萨卡兹": "sarkaz",
-            "界园": "zoo",
-        }
-        return topic_map.get(topic, "")
-
-    @filter.command("sklandusers")
-    async def skland_users(self, event: AstrMessageEvent):
-        """查看用户统计(仅管理员)"""
-        if not event.is_admin():
-            yield event.plain_result("❌ 仅管理员可用")
-            return
-
-        users = await self.get_kv_data("sklandv2_users", {})
-        config = self._get_config()
-        max_users = config.get("max_users", 10)
-
-        lines = [
-            "📊 森空岛V2 用户统计",
-            "═══════════════════",
-            f"📝 总用户: {len(users)} 人",
-        ]
-
-        if max_users > 0:
-            remaining = max(0, max_users - len(users))
-            lines.append(f"🎯 最大限制: {max_users} 人")
-            lines.append(f"🆓 剩余名额: {remaining} 人")
-
-        if len(users) <= 20:
-            lines.append("\n👤 用户列表:")
-            for uid, udata in users.items():
-                nickname = udata.get("nickname") or udata.get("last_username", "未知")
-                last_sign = list(udata.get("last_sign", {}).values())[-1] if udata.get("last_sign") else "未签到"
-                lines.append(f"  • {nickname} (最后: {last_sign})")
-
-        yield event.plain_result("\n".join(lines))
-
-    @filter.command("sklandgacha")
-    async def skland_gacha(self, event: AstrMessageEvent):
-        """查询抽卡记录"""
-        user_id = event.get_sender_id()
-        users = await self.get_kv_data("sklandv2_users", {})
-        user_data = users.get(user_id)
-
-        if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
-            return
-
-        yield event.plain_result("正在查询抽卡记录，请稍候...")
+        yield event.plain_result("正在查询明日方舟抽卡记录，请稍候...")
         try:
             token = user_data["token"]
             access_token = user_data.get("access_token", token)
 
-            auth_code = await self.api.get_grant_code(access_token, 1)
-            cred = await self.api.get_credential(auth_code)
+            # Step 1: 获取 web token (type=1) 用于 role token API
+            grant_code_web = await self.api.get_grant_code(access_token, 1)
+
+            # Step 2: 获取 skland code (type=0) 用于获取绑定列表
+            grant_code_skland = await self.api.get_grant_code(access_token, 0)
+            cred = await self.api.get_credential(grant_code_skland)
             bindings = await self.api.get_binding_list(cred)
 
             ark_binding = None
@@ -647,7 +533,7 @@ class SklandPluginV2(Star):
                 yield event.plain_result("❌ 未绑定明日方舟角色")
                 return
 
-            role_token = await self.api.get_role_token(ark_binding.uid, auth_code)
+            role_token = await self.api.get_role_token(ark_binding.uid, grant_code_web)
             ak_cookie = await self.api.get_ak_cookie(role_token)
 
             categories = await self.api.get_gacha_categories(
@@ -706,22 +592,122 @@ class SklandPluginV2(Star):
                     six_rate=round(six_rate, 1),
                     up_rate=0,
                 )
-
                 if img_data:
-                    import astrbot.api.message_components as Comp
                     yield event.chain_result([Comp.Image.fromBytes(img_data)])
                 else:
                     yield event.plain_result(self._format_gacha_text(pools, total_pulls, six_rate))
             except Exception as e:
-                logger.error(f"渲染图片失败: {e}")
                 yield event.plain_result(self._format_gacha_text(pools, total_pulls, six_rate))
-
         except Exception as e:
-            logger.error(f"查询抽卡记录失败: {e}")
+            logger.error(f"查询抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
-    async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
-        """登录/扫码后自动导入抽卡记录"""
+    # ---------- end chouka ----------
+    @filter.command_group("skland end")
+    async def skland_end(self, event: AstrMessageEvent):
+        yield event.plain_result("使用方法: /skland end chouka")
+
+    @filter.command_group("skland end chouka")
+    async def skland_end_chouka(self, event: AstrMessageEvent):
+        user_id = event.get_sender_id()
+        users = await self.get_kv_data("sklandv2_users", {})
+        user_data = users.get(user_id)
+
+        if not user_data:
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
+            return
+
+        yield event.plain_result("正在查询终末地抽卡记录，请稍候...")
+        try:
+            token = user_data["token"]
+            access_token = user_data.get("access_token", token)
+
+            # Step 1: 获取 web token (type=1) 用于 role token API
+            grant_code_web = await self.api.get_grant_code(access_token, 1)
+
+            # Step 2: 获取 skland code (type=0) 用于获取绑定列表
+            grant_code_skland = await self.api.get_grant_code(access_token, 0)
+            cred = await self.api.get_credential(grant_code_skland)
+            bindings = await self.api.get_binding_list(cred)
+
+            ef_binding = None
+            for b in bindings:
+                if b.app_code == "endfield":
+                    ef_binding = b
+                    break
+
+            if not ef_binding:
+                yield event.plain_result("❌ 未绑定终末地角色")
+                return
+
+            ef_records = []
+            for role in ef_binding.roles:
+role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
+                server_id = role.get("serverId", ef_binding.uid)
+                for pool_type_raw in ("char", "weapon"):
+                    try:
+                        is_weapon = pool_type_raw == "weapon"
+                        ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                        params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
+                        client = await self.api._get_client()
+                        response = await client.get(ef_gacha_url, params=params)
+                        data = response.json()
+                        logger.debug(f"[end_chouka] {pool_type_raw} 响应: {json.dumps(data, ensure_ascii=False)[:200]}")
+                        if data.get("code") == 0 and data.get("data"):
+                            gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
+                            for item in (gacha_list or []):
+                                ef_records.append(item)
+                    except Exception:
+                        continue
+
+            if not ef_records:
+                yield event.plain_result("❌ 暂无终末地抽卡记录")
+                return
+
+            pools_dict = {}
+            for record in ef_records[:100]:
+                pool_name = record.get("poolName", "未知")
+                if pool_name not in pools_dict:
+                    pools_dict[pool_name] = []
+                pools_dict[pool_name].append({
+                    "name": record.get("charName", "未知"),
+                    "rarity": record.get("rarity", 3),
+                    "is_new": record.get("isNew", False),
+                })
+
+            pools = []
+            for name, pulls in pools_dict.items():
+                pools.append({
+                    "name": name[:20],
+                    "count": len(pulls),
+                    "pulls": pulls[:20]
+                })
+
+            total_pulls = len(ef_records)
+            yield event.plain_result(self._format_gacha_text(pools, total_pulls, 0))
+        except Exception as e:
+            logger.error(f"查询终末地抽卡失败: {e}")
+            yield event.plain_result(f"❌ 查询失败: {str(e)}")
+
+    # ---------- gacha helpers ----------
+    def _format_gacha_text(self, pools: list, total: int, six_rate: float) -> str:
+        lines = [
+            f"📊 抽卡记录统计",
+            f"═══════════════",
+            f"总抽数: {total}",
+            f"六星率: {six_rate:.1f}%",
+            "",
+        ]
+        for pool in pools[:5]:
+            lines.append(f"【{pool['name']}】{pool['count']}抽")
+            pulls_str = ", ".join([p["name"] for p in pool["pulls"][:8]])
+            lines.append(f"  {pulls_str}")
+            if len(pool["pulls"]) > 8:
+                lines.append(f"  ... 共{len(pool['pulls'])}个")
+            lines.append("")
+        return "\n".join(lines)
+
+async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
         async with GACHA_API_SEMAPHORE:
             try:
                 user_id = event.get_sender_id()
@@ -730,38 +716,63 @@ class SklandPluginV2(Star):
                 if not user_data:
                     return
 
+                logger.info(f"[auto_import] 开始为用户 {user_id} 自动导入抽卡记录")
+
                 access_token = user_data.get("access_token", token)
-                grant_code = await self.api.get_grant_code(access_token, 0)
-                cred = await self.api.get_credential(grant_code)
+                logger.debug(f"[auto_import] access_token: {access_token[:8]}...")
+
+                # Step 1: 获取 skland 授权码 (token_type=0) -> 获取 cred -> 获取绑定列表
+                grant_code_skland = await self.api.get_grant_code(access_token, 0)
+                logger.debug(f"[auto_import] grant_code_skland: {grant_code_skland[:8]}...")
+                cred = await self.api.get_credential(grant_code_skland)
+                logger.debug(f"[auto_import] cred obtained, cred_token: {cred.token[:8]}...")
                 bindings = await self.api.get_binding_list(cred)
+                logger.info(f"[auto_import] 获取到 {len(bindings)} 个绑定")
 
                 ak_records = []
                 ef_records = []
 
                 for binding in bindings:
                     if binding.app_code == "arknights":
-                        grant_code_for_role = await self.api.get_grant_code(access_token, 1)
-                        role_token = await self.api.get_role_token(binding.uid, grant_code_for_role)
+                        # Step 2: 获取 hypergryph pass token (token_type=1)
+                        grant_code_web = await self.api.get_grant_code(access_token, 1)
+                        logger.debug(f"[auto_import] {binding.nickname}: grant_code_web: {grant_code_web[:8]}...")
+
+                        # Step 3: 用 pass token 和 binding.uid 获取 role token
+                        role_token = await self.api.get_role_token(binding.uid, grant_code_web)
+                        logger.info(f"[auto_import] {binding.nickname} role_token 获取成功")
+
+                        # Step 4: 获取 AK cookie
                         ak_cookie = await self.api.get_ak_cookie(role_token)
-                        categories = await self.api.get_gacha_categories(binding.uid, role_token, access_token, ak_cookie)
+                        logger.info(f"[auto_import] ak_cookie: {'获取成功' if ak_cookie else '获取失败'}")
+
+                        # Step 5: 获取抽卡类别并拉取记录
+                        categories = await self.api.get_gacha_categories(
+                            binding.uid, role_token, access_token, ak_cookie
+                        )
+                        logger.info(f"[auto_import] 获取到 {len(categories)} 个抽卡类别: {[c.get('name', c.get('id')) for c in categories[:5]]}")
                         for cate in categories[:3]:
-                            cate_id = cate.get("id") or cate.get("cateId")
-                            if cate_id:
-                                records = await self.api.get_all_gacha_records(
-                                    binding.uid, role_token, access_token, ak_cookie, str(cate_id)
-                                )
-                                ak_records.extend(records)
+                            cate_id = str(cate.get("id"))
+                            pool_name = cate.get("name", cate_id)
+                            logger.debug(f"[auto_import] 获取卡池 {cate_id} ({pool_name})")
+                            records = await self.api.get_all_gacha_records(
+                                binding.uid, role_token, access_token, ak_cookie, cate_id
+                            )
+                            ak_records.extend(records)
+                            records = await self.api.get_all_gacha_records(
+                                binding.uid, role_token, access_token, ak_cookie, cate_id
+                            )
+                            ak_records.extend(records)
 
                     elif binding.app_code == "endfield":
+                        grant_code_web = await self.api.get_grant_code(access_token, 1)
+                        role_token = await self.api.get_role_token(binding.uid, grant_code_web)
                         for role in binding.roles:
-                            grant_code_for_role = await self.api.get_grant_code(access_token, 1)
-                            role_token = await self.api.get_role_token(binding.uid, grant_code_for_role)
                             server_id = role.get("serverId", binding.uid)
                             for pool_type_raw in ("char", "weapon"):
                                 try:
                                     is_weapon = pool_type_raw == "weapon"
-                                    url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                                    ef_gacha_url = url
+                                    ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
                                     params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
                                     client = await self.api._get_client()
                                     response = await client.get(ef_gacha_url, params=params)
@@ -770,8 +781,8 @@ class SklandPluginV2(Star):
                                         gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
                                         for item in (gacha_list or []):
                                             ef_records.append(item)
-                                except Exception:
-                                    continue
+                                except Exception as inner_e:
+                                    logger.error(f"[auto_import] 终末地抽卡拉取失败: {inner_e}")
 
                 summary_parts = []
                 if ak_records:
@@ -794,37 +805,22 @@ class SklandPluginV2(Star):
                         "endfield": [r for r in ef_records[:200]],
                     }
                     await self.put_kv_data("sklandv2_gacha", gacha_records)
+                    logger.info(f"[auto_import] 保存 {len(ak_records)} 条方舟记录, {len(ef_records)} 条终末地记录")
                     await self._send_private_message(user_id, user_data, f"📥 自动导入抽卡记录完成：\n{', '.join(summary_parts)}")
                 else:
                     await self._send_private_message(user_id, user_data, "📥 未发现抽卡记录")
+                    logger.info(f"[auto_import] 未发现任何抽卡记录")
             except Exception as e:
                 logger.error(f"自动导入抽卡记录失败: {e}")
+                logger.exception("[auto_import] 完整异常信息:")
 
-    def _format_gacha_text(self, pools: list, total: int, six_rate: float) -> str:
-        """格式化抽卡记录为文本"""
-        lines = [
-            f"📊 抽卡记录统计",
-            f"═══════════════",
-            f"总抽数: {total}",
-            f"六星率: {six_rate:.1f}%",
-            "",
-        ]
-        for pool in pools[:5]:
-            lines.append(f"【{pool['name']}】{pool['count']}抽")
-            pulls_str = ", ".join([p["name"] for p in pool["pulls"][:8]])
-            lines.append(f"  {pulls_str}")
-            if len(pool["pulls"]) > 8:
-                lines.append(f"  ... 共{len(pool['pulls'])}个")
-            lines.append("")
-        return "\n".join(lines)
-
-    @filter.command("sklandimport")
+    # ---------- import ----------
+    @filter.command_group("skland import")
     async def skland_import(self, event: AstrMessageEvent, url: str = ""):
-        """导入抽卡记录"""
         if not url:
             yield event.plain_result(
                 "请提供导入链接\n"
-                "使用方法: /sklandimport <heybox导出链接>\n"
+                "使用方法: /skland import <heybox导出链接>\n"
                 "注: 支持heybox导出的抽卡记录链接"
             )
             return
@@ -834,7 +830,7 @@ class SklandPluginV2(Star):
         user_data = users.get(user_id)
 
         if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
             return
 
         yield event.plain_result("正在导入抽卡记录，请稍候...")
@@ -877,3 +873,56 @@ class SklandPluginV2(Star):
         except Exception as e:
             logger.error(f"导入抽卡记录失败: {e}")
             yield event.plain_result(f"❌ 导入失败: {str(e)}")
+
+    # ---------- group ----------
+    @filter.command_group("skland group")
+    async def skland_group(self, event: AstrMessageEvent):
+        group_id = getattr(event.message_obj, "group_id", None)
+        if not group_id:
+            yield event.plain_result("请在群内使用此命令")
+            return
+
+        groups = await self.get_kv_data("sklandv2_groups", {})
+        gid = str(group_id)
+        if gid in groups:
+            del groups[gid]
+            await self.put_kv_data("sklandv2_groups", groups)
+            yield event.plain_result("✅ 已取消本群签到通知订阅")
+        else:
+            groups[gid] = {
+                "umo": event.unified_msg_origin,
+                "name": f"群{group_id}",
+            }
+            await self.put_kv_data("sklandv2_groups", groups)
+            yield event.plain_result("✅ 已订阅每日签到通知")
+
+    # ---------- users ----------
+    @filter.command_group("skland users")
+    async def skland_users(self, event: AstrMessageEvent):
+        if not event.is_admin():
+            yield event.plain_result("❌ 仅管理员可用")
+            return
+
+        users = await self.get_kv_data("sklandv2_users", {})
+        config = self._get_config()
+        max_users = config.get("max_users", 10)
+
+        lines = [
+            "📊 森空岛V2 用户统计",
+            "═══════════════════",
+            f"📝 总用户: {len(users)} 人",
+        ]
+
+        if max_users > 0:
+            remaining = max(0, max_users - len(users))
+            lines.append(f"🎯 最大限制: {max_users} 人")
+            lines.append(f"🆓 剩余名额: {remaining} 人")
+
+        if len(users) <= 20:
+            lines.append("\n👤 用户列表:")
+            for uid, udata in users.items():
+                nickname = udata.get("nickname") or udata.get("last_username", "未知")
+                last_sign = list(udata.get("last_sign", {}).values())[-1] if udata.get("last_sign") else "未签到"
+                lines.append(f"  • {nickname} (最后: {last_sign})")
+
+        yield event.plain_result("\n".join(lines))
