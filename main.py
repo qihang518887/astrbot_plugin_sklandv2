@@ -642,7 +642,7 @@ class SklandPluginV2(Star):
 
             ef_records = []
             for role in ef_binding.roles:
-role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
+                role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
                 server_id = role.get("serverId", ef_binding.uid)
                 for pool_type_raw in ("char", "weapon"):
                     try:
@@ -652,7 +652,6 @@ role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
                         client = await self.api._get_client()
                         response = await client.get(ef_gacha_url, params=params)
                         data = response.json()
-                        logger.debug(f"[end_chouka] {pool_type_raw} 响应: {json.dumps(data, ensure_ascii=False)[:200]}")
                         if data.get("code") == 0 and data.get("data"):
                             gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
                             for item in (gacha_list or []):
