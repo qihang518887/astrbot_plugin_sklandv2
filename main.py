@@ -238,7 +238,7 @@ class SklandPluginV2(Star):
         """森空岛主命令"""
         text = event.message_str.strip()
         parts = text.split()
-        if len(parts) <= 1 or len(parts) >= 1 and len(parts) <= 2 and Parts[1] in ("help", "help"):
+        if len(parts) <= 1 or (len(parts) == 2 and parts[1] in ("help",)):
             yield event.plain_result(self._help_text())
         else:
             yield event.plain_result(self._help_text())
