@@ -679,7 +679,7 @@ class SklandAPI:
             raise Exception(f"获取角色Token失败: {response.get('message', response.get('msg', '未知错误'))}")
         return response.get("data", {}).get("token") or response.get("data", {}).get("roleToken", "")
 
-async def get_ak_cookie(self, role_token: str) -> str:
+    async def get_ak_cookie(self, role_token: str) -> str:
         """获取明日方舟官网cookie (ak-user-center)"""
         client = await self._get_client()
         response = await client.post(
