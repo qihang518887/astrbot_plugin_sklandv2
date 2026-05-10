@@ -30,6 +30,7 @@ import json
 from .skland_api import SklandAPI, UserBinding, Credential
 
 PLUGIN_NAME = "astrbot_plugin_sklandv2"
+GACHA_API_SEMAPHORE = asyncio.Semaphore(3)
 
 
 @register(PLUGIN_NAME, "AstrBot", "森空岛V2插件(明日方舟/终末地)", "2.0.0")
@@ -324,6 +325,7 @@ class SklandPluginV2(Star):
             await self.put_kv_data("sklandv2_users", all_users)
 
             yield event.plain_result(f"✅ 登录成功！\n{self._format_sign_status(results, nickname)}")
+            asyncio.create_task(self._auto_import_all_gacha(token, event))
         except Exception as e:
             logger.error(f"sklandlogin失败: {e}")
             yield event.plain_result(f"❌ 登录失败: {str(e)}")
@@ -387,7 +389,8 @@ class SklandPluginV2(Star):
                         elif r.game == "终末地" and self._is_signed_today(r):
                             users[user_id]["last_sign"]["endfield"] = datetime.now().strftime("%Y-%m-%d")
                     await self.put_kv_data("sklandv2_users", users)
-                    yield event.plain_result(f"✅ 扫码成功！\n{self._format_sign_status(results, nickname)}")
+                    yield event.plain_result(f"✅ 扫码成功！\n{self._format_sign_status(results, nickname)}\n正在自动导入抽卡记录，请稍候...")
+                    asyncio.create_task(self._auto_import_all_gacha(token, event))
                     return
 
             yield event.plain_result("❌ 二维码已超时，请重新获取")
@@ -716,6 +719,84 @@ class SklandPluginV2(Star):
         except Exception as e:
             logger.error(f"查询抽卡记录失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
+
+    async def _auto_import_all_gacha(self, token: str, event: AstrMessageEvent):
+        """登录/扫码后自动导入抽卡记录"""
+        async with GACHA_API_SEMAPHORE:
+            try:
+                user_id = event.get_sender_id()
+                users = await self.get_kv_data("sklandv2_users", {})
+                user_data = users.get(user_id)
+                if not user_data:
+                    return
+
+                access_token = user_data.get("access_token", token)
+                auth_code = await self.api.get_grant_code(access_token, 1)
+                cred = await self.api.get_credential(auth_code)
+                bindings = await self.api.get_binding_list(cred)
+
+                ak_records = []
+                ef_records = []
+
+                for binding in bindings:
+                    if binding.app_code == "arknights":
+                        role_token = await self.api.get_role_token(binding.uid, auth_code)
+                        ak_cookie = await self.api.get_ak_cookie(role_token)
+                        categories = await self.api.get_gacha_categories(binding.uid, role_token, access_token, ak_cookie)
+                        for cate in categories[:3]:
+                            cate_id = cate.get("id") or cate.get("cateId")
+                            if cate_id:
+                                records = await self.api.get_all_gacha_records(
+                                    binding.uid, role_token, access_token, ak_cookie, str(cate_id)
+                                )
+                                ak_records.extend(records)
+
+                    elif binding.app_code == "endfield":
+                        for role in binding.roles:
+                            role_token = await self.api.get_role_token(binding.uid, auth_code)
+                            server_id = role.get("serverId", binding.uid)
+                            for pool_type_raw in ("char", "weapon"):
+                                try:
+                                    is_weapon = pool_type_raw == "weapon"
+                                    url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                                    ef_gacha_url = url
+                                    params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
+                                    client = await self.api._get_client()
+                                    response = await client.get(ef_gacha_url, params=params)
+                                    data = response.json()
+                                    if data.get("code") == 0 and data.get("data"):
+                                        gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
+                                        for item in (gacha_list or []):
+                                            ef_records.append(item)
+                                except Exception:
+                                    continue
+
+                summary_parts = []
+                if ak_records:
+                    summary_parts.append(f"明日方舟{len(ak_records)}条")
+                if ef_records:
+                    summary_parts.append(f"终末地{len(ef_records)}条")
+
+                if summary_parts:
+                    gacha_records = await self.get_kv_data("sklandv2_gacha", {})
+                    gacha_records[user_id] = {
+                        "arknights": [
+                            {
+                                "poolName": r.get("poolName", ""),
+                                "charName": r.get("charName", ""),
+                                "rarity": r.get("rarity", 3),
+                                "isNew": r.get("isNew", False),
+                            }
+                            for r in ak_records[:200]
+                        ],
+                        "endfield": [r for r in ef_records[:200]],
+                    }
+                    await self.put_kv_data("sklandv2_gacha", gacha_records)
+                    await self._send_private_message(user_id, user_data, f"📥 自动导入抽卡记录完成：\n{', '.join(summary_parts)}")
+                else:
+                    await self._send_private_message(user_id, user_data, "📥 未发现抽卡记录")
+            except Exception as e:
+                logger.error(f"自动导入抽卡记录失败: {e}")
 
     def _format_gacha_text(self, pools: list, total: int, six_rate: float) -> str:
         """格式化抽卡记录为文本"""
