@@ -309,8 +309,9 @@ class SklandPluginV2(Star):
             qr.save(buf, format='PNG')
             buf.seek(0)
 
+            import astrbot.api.message_components as Comp
             yield event.plain_result("请使用森空岛APP扫描二维码登录\n二维码有效时间2分钟")
-            yield event.image_result(buf.getvalue())
+            yield event.chain_result([Comp.Image.fromBytes(buf.getvalue())])
 
             import asyncio
             for _ in range(60):
@@ -654,7 +655,8 @@ class SklandPluginV2(Star):
                 )
 
                 if img_data:
-                    yield event.image_result(img_data)
+                    import astrbot.api.message_components as Comp
+                    yield event.chain_result([Comp.Image.fromBytes(img_data)])
                 else:
                     yield event.plain_result(self._format_gacha_text(pools, total_pulls, six_rate))
             except Exception as e:
