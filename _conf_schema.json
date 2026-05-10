@@ -1,0 +1,32 @@
+{
+  "auto_sign_enabled": {
+    "description": "自动签到开关",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，将在指定时间自动为所有已注册用户签到"
+  },
+  "show_player_name": {
+    "description": "显示玩家名称",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后显示森空岛昵称，否则显示QQ昵称"
+  },
+  "auto_sign_hour": {
+    "description": "自动签到时间（小时）",
+    "type": "int",
+    "default": 1,
+    "hint": "自动签到执行的小时（0-23），默认凌晨1点"
+  },
+  "auto_sign_delay": {
+    "description": "签到的随机延迟",
+    "type": "int",
+    "default": 10,
+    "hint": "自动签到时随机延时秒数，防止风控"
+  },
+  "max_users": {
+    "description": "最大登录数量",
+    "type": "int",
+    "default": 10,
+    "hint": "限制登录账户的数量，0为不限制"
+  }
+}

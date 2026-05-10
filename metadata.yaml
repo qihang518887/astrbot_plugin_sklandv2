@@ -1,0 +1,6 @@
+name: astrbot_plugin_sklandv2
+display_name: 森空岛V2
+desc: 森空岛签到和数据查询插件(明日方舟/终末地)，从nonebot-plugin-skland移植
+version: v2.0.0
+author: Azincc
+repo: https://github.com/Azincc/astrbot_plugin_sklandv2
