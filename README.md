@@ -22,9 +22,9 @@
 | `/skland sign` | 手动签到 |
 | `/skland status` | 签到状态 |
 | `/skland card` | 绑定角色 |
-| `/skland ark chouka` | 明日方舟抽卡 |
-| `/skland end chouka` | 终末地抽卡 |
-| `/skland import <url>` | 导入抽卡 |
+| `/skland arkgacha` | 明日方舟抽卡 |
+| `/skland endgacha` | 终末地抽卡 |
+| `/skland import` | 自动导入抽卡 |
 | `/skland group` | 群签到订阅 |
 | `/skland users` | 用户统计(仅管理员) |
 

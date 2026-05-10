@@ -9,9 +9,9 @@ Commands:
 - /skland sign - 手动签到
 - /skland status - 签到状态
 - /skland card - 绑定角色
-- /skland ark chouka - 明日方舟抽卡
-- /skland end chouka - 终末地抽卡
-- /skland import <url> - 导入抽卡
+- /skland arkgacha - 明日方舟抽卡
+- /skland endgacha - 终末地抽卡
+- /skland import - 自动导入抽卡
 - /skland group - 群签到订阅
 - /skland users - 用户统计
 
@@ -23,12 +23,11 @@ Config:
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-import astrbot.api.message_components as Comp
-from astrbot.api import logger
+from astrbot.api import logger, AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.config import put_config
-from astrbot.api import AstrBotConfig
+import astrbot.api.message_components as Comp
 import asyncio
 import random
 import json
@@ -255,9 +254,9 @@ class SklandPluginV2(Star):
             "  /skland sign - 手动签到\n"
             "  /skland status - 签到状态\n"
             "  /skland card - 绑定角色\n"
-            "  /skland ark chouka - 明日方舟抽卡\n"
-            "  /skland end chouka - 终末地抽卡\n"
-            "  /skland import <url> - 导入抽卡\n"
+            "  /skland arkgacha - 明日方舟抽卡\n"
+            "  /skland endgacha - 终末地抽卡\n"
+            "  /skland import - 自动导入抽卡\n"
             "  /skland group - 群签到订阅\n"
             "  /skland users - 用户统计(管理)\n"
             "══════════════════\n"
@@ -496,13 +495,9 @@ class SklandPluginV2(Star):
             logger.error(f"查询卡片失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
-    # ---------- ark chouka ----------
-    @filter.command_group("skland ark")
-    async def skland_ark(self, event: AstrMessageEvent):
-        yield event.plain_result("使用方法: /skland ark chouka")
-
-    @filter.command_group("skland ark chouka")
-    async def skland_ark_chouka(self, event: AstrMessageEvent):
+    # ---------- arkgacha ----------
+    @filter.command_group("skland arkgacha")
+    async def skland_arkgacha(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
@@ -603,13 +598,9 @@ class SklandPluginV2(Star):
             logger.error(f"查询抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
-    # ---------- end chouka ----------
-    @filter.command_group("skland end")
-    async def skland_end(self, event: AstrMessageEvent):
-        yield event.plain_result("使用方法: /skland end chouka")
-
-    @filter.command_group("skland end chouka")
-    async def skland_end_chouka(self, event: AstrMessageEvent):
+    # ---------- endgacha ----------
+    @filter.command_group("skland endgacha")
+    async def skland_endgacha(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
@@ -811,15 +802,7 @@ class SklandPluginV2(Star):
 
     # ---------- import ----------
     @filter.command_group("skland import")
-    async def skland_import(self, event: AstrMessageEvent, url: str = ""):
-        if not url:
-            yield event.plain_result(
-                "请提供导入链接\n"
-                "使用方法: /skland import <heybox导出链接>\n"
-                "注: 支持heybox导出的抽卡记录链接"
-            )
-            return
-
+    async def skland_import(self, event: AstrMessageEvent):
         user_id = event.get_sender_id()
         users = await self.get_kv_data("sklandv2_users", {})
         user_data = users.get(user_id)
@@ -828,46 +811,68 @@ class SklandPluginV2(Star):
             yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
             return
 
-        yield event.plain_result("正在导入抽卡记录，请稍候...")
+        yield event.plain_result("正在自动导入抽卡记录，请稍候...")
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url)
-                if response.status_code != 200:
-                    yield event.plain_result(f"❌ 请求失败，状态码: {response.status_code}")
-                    return
+            token = user_data["token"]
+            access_token = user_data.get("access_token", token)
+            grant_code_web = await self.api.get_grant_code(access_token, 1)
+            grant_code_skland = await self.api.get_grant_code(access_token, 0)
+            cred = await self.api.get_credential(grant_code_skland)
+            bindings = await self.api.get_binding_list(cred)
 
-                data = response.json()
-                info = data.get("info", {})
-                gacha_data = data.get("data", {})
+            import_results = []
+            for binding in bindings:
+                if binding.app_code == "arknights":
+                    role_token = await self.api.get_role_token(binding.uid, grant_code_web)
+                    ak_cookie = await self.api.get_ak_cookie(role_token)
+                    categories = await self.api.get_gacha_categories(
+                        binding.uid, role_token, access_token, ak_cookie
+                    )
+                    ark_records = []
+                    for cate in categories[:3]:
+                        cate_id = str(cate.get("id"))
+                        records = await self.api.get_all_gacha_records(
+                            binding.uid, role_token, access_token, ak_cookie, cate_id
+                        )
+                        ark_records.extend(records)
+                    import_results.append(("明日方舟", len(ark_records), ark_records))
 
-                records = []
-                for ts, records_list in gacha_data.items():
-                    for idx, item in enumerate(records_list):
-                        records.append({
-                            "ts": int(ts),
-                            "pos": idx,
-                            "name": item[0],
-                            "rarity": item[1],
-                            "is_new": item[2] if len(item) > 2 else False,
-                            "pool": "未知"
-                        })
+                elif binding.app_code == "endfield":
+                    role_token = await self.api.get_role_token(binding.uid, grant_code_web)
+                    ef_records = []
+                    for role in binding.roles:
+                        server_id = role.get("serverId", binding.uid)
+                        for pool_type_raw in ("char", "weapon"):
+                            try:
+                                is_weapon = pool_type_raw == "weapon"
+                                ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                                params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
+                                client = await self.api._get_client()
+                                response = await client.get(ef_gacha_url, params=params)
+                                data = response.json()
+                                if data.get("code") == 0 and data.get("data"):
+                                    gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
+                                    for item in (gacha_list or []):
+                                        ef_records.append(item)
+                            except Exception:
+                                continue
+                    import_results.append(("终末地", len(ef_records), ef_records))
 
+            summary = []
+            for game, count, records in import_results:
+                summary.append(f"{game} {count}条")
                 gacha_records = await self.get_kv_data("sklandv2_gacha", {})
-                if user_id not in gacha_records:
-                    gacha_records[user_id] = []
-                gacha_records[user_id].extend(records)
+                gacha_records[user_id] = gacha_records.get(user_id, {})
+                gacha_records[user_id]["arknights" if game == "明日方舟" else "endfield"] = records
                 await self.put_kv_data("sklandv2_gacha", gacha_records)
 
-                yield event.plain_result(
-                    f"📥 导入成功\n"
-                    f"UID: {info.get('uid')}\n"
-                    f"记录数: {len(records)} 条\n"
-                    f"数据来源: heybox"
-                )
+            if summary:
+                yield event.plain_result(f"📥 自动导入抽卡记录完成：\n{', '.join(summary)}")
+            else:
+                yield event.plain_result("📥 未发现新抽卡记录")
         except Exception as e:
-            logger.error(f"导入抽卡记录失败: {e}")
-            yield event.plain_result(f"❌ 导入失败: {str(e)}")
+            logger.error(f"自动导入抽卡失败: {e}")
+            yield event.plain_result(f"❌ 自动导入失败: {str(e)}")
 
     # ---------- group ----------
     @filter.command_group("skland group")
