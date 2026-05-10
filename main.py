@@ -205,6 +205,7 @@ class SklandPluginV2(Star):
             "📝 命令列表:\n"
             "  /skland - 显示本帮助\n"
             "  /sklandlogin <token> - 登录并签到\n"
+            "  /sklandqrcode - 扫码登录(私聊)\n"
             "  /sklandlogout - 登出\n"
             "  /sklandsign - 手动签到\n"
             "  /sklandcard - 查询角色卡片\n"
@@ -287,6 +288,61 @@ class SklandPluginV2(Star):
             yield event.plain_result("✅ 已退出登录并清除绑定信息")
         else:
             yield event.plain_result("您尚未绑定森空岛账号")
+
+    @filter.command("sklandqrcode")
+    async def skland_qrcode(self, event: AstrMessageEvent):
+        """扫码登录森空岛"""
+        group_id = getattr(event.message_obj, "group_id", None)
+        if group_id:
+            yield event.plain_result("请在私聊中使用此命令进行扫码登录")
+            return
+
+        yield event.plain_result("正在获取二维码，请稍候...")
+        try:
+            scan_id = await self.api.get_scan()
+            scan_url = f"hypergryph://scan_login?scanId={scan_id}"
+
+            import qrcode
+            from io import BytesIO
+            qr = qrcode.make(scan_url)
+            buf = BytesIO()
+            qr.save(buf, format='PNG')
+            buf.seek(0)
+
+            yield event.plain_result("请使用森空岛APP扫描二维码登录\n二维码有效时间2分钟")
+            yield event.image_result(buf.getvalue())
+
+            import asyncio
+            for _ in range(60):
+                await asyncio.sleep(2)
+                scan_code = await self.api.get_scan_status(scan_id)
+                if scan_code:
+                    token = await self.api.get_token_by_scan_code(scan_code)
+
+                    results, nickname = await self.api.do_full_sign_in(token)
+                    user_id = event.get_sender_id()
+                    users = await self.get_kv_data("sklandv2_users", {})
+                    users[user_id] = {
+                        "token": token,
+                        "nickname": nickname,
+                        "last_username": event.get_sender_name(),
+                        "last_sign": {},
+                        "bound_at": datetime.now().isoformat(),
+                        "umo": event.unified_msg_origin,
+                    }
+                    for r in results:
+                        if r.game == "明日方舟" and self._is_signed_today(r):
+                            users[user_id]["last_sign"]["arknights"] = datetime.now().strftime("%Y-%m-%d")
+                        elif r.game == "终末地" and self._is_signed_today(r):
+                            users[user_id]["last_sign"]["endfield"] = datetime.now().strftime("%Y-%m-%d")
+                    await self.put_kv_data("sklandv2_users", users)
+                    yield event.plain_result(f"✅ 扫码成功！\n{self._format_sign_status(results, nickname)}")
+                    return
+
+            yield event.plain_result("❌ 二维码已超时，请重新获取")
+        except Exception as e:
+            logger.error(f"扫码登录失败: {e}")
+            yield event.plain_result(f"❌ 扫码登录失败: {str(e)}")
 
     @filter.command("sklandsign")
     async def skland_sign(self, event: AstrMessageEvent):
@@ -659,10 +715,28 @@ class SklandPluginV2(Star):
                 info = data.get("info", {})
                 gacha_data = data.get("data", {})
 
+                records = []
+                for ts, records_list in gacha_data.items():
+                    for idx, item in enumerate(records_list):
+                        records.append({
+                            "ts": int(ts),
+                            "pos": idx,
+                            "name": item[0],
+                            "rarity": item[1],
+                            "is_new": item[2] if len(item) > 2 else False,
+                            "pool": "未知"
+                        })
+
+                gacha_records = await self.get_kv_data("sklandv2_gacha", {})
+                if user_id not in gacha_records:
+                    gacha_records[user_id] = []
+                gacha_records[user_id].extend(records)
+                await self.put_kv_data("sklandv2_gacha", gacha_records)
+
                 yield event.plain_result(
                     f"📥 导入成功\n"
                     f"UID: {info.get('uid')}\n"
-                    f"记录数: {len(gacha_data)} 条\n"
+                    f"记录数: {len(records)} 条\n"
                     f"数据来源: heybox"
                 )
         except Exception as e:

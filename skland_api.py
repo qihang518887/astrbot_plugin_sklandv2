@@ -619,6 +619,40 @@ class SklandAPI:
         """获取明日方舟抽卡记录（需要额外认证）"""
         return {"error": "抽卡记录功能需要额外配置，请查看文档"}
 
+    async def get_scan(self) -> str:
+        """获取扫码登录二维码ID"""
+        response = await self._request(
+            "POST",
+            "https://as.hypergryph.com/general/v1/gen_scan/login",
+            json_data={"appCode": "4ca99fa6b56cc2ba"},
+        )
+        if response.get("status") != 0:
+            raise Exception(f"获取二维码失败: {response.get('msg')}")
+        return response["data"]["scanId"]
+
+    async def get_scan_status(self, scan_id: str) -> Optional[str]:
+        """检查扫码状态"""
+        client = await self._get_client()
+        response = await client.get(
+            "https://as.hypergryph.com/general/v1/scan_status",
+            params={"scanId": scan_id},
+        )
+        data = response.json()
+        if data.get("status") != 0:
+            return None
+        return data["data"].get("scanCode")
+
+    async def get_token_by_scan_code(self, scan_code: str) -> str:
+        """通过扫码获取token"""
+        response = await self._request(
+            "POST",
+            "https://as.hypergryph.com/user/auth/v1/token_by_scan_code",
+            json_data={"scanCode": scan_code},
+        )
+        if response.get("status") != 0:
+            raise Exception(f"获取token失败: {response.get('msg')}")
+        return response["data"]["token"]
+
     async def get_grant_code(self, token: str, token_type: int = 0) -> str:
         """获取授权码"""
         response = await self._request(
