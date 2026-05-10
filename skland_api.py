@@ -779,6 +779,6 @@ class SklandAPI:
             prev_ts, prev_pos = next_ts, next_pos
             page = await self.get_gacha_history(
                 uid, role_token, access_token, ak_cookie, category,
-                gachaTs=next_ts or None, pos=next_pos
+                gacha_ts=next_ts or None, pos=next_pos
             )
         return all_records
