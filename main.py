@@ -165,6 +165,38 @@ class SklandPluginV2(Star):
         await self.put_kv_data("sklandv2_users", users)
         logger.info("自动签到执行完毕")
 
+        await self._notify_subscribed_groups(users)
+
+    async def _notify_subscribed_groups(self, users: dict):
+        """向已订阅的群发送签到汇总"""
+        groups = await self.get_kv_data("sklandv2_groups", {})
+        if not groups:
+            return
+
+        success_total = 0
+        fail_total = 0
+        for user_id, user_data in users.items():
+            if user_data.get("last_sign"):
+                ls = user_data.get("last_sign", {})
+                if ls.get("arknights") or ls.get("endfield"):
+                    success_total += 1
+                else:
+                    fail_total += 1
+            else:
+                fail_total += 1
+
+        summary = (
+            f"✅ skland今日自动签到已完成！\n"
+            f"📝 本群共签到成功{success_total}人，共签到失败{fail_total}人。"
+        )
+
+        for group_id, info in groups.items():
+            try:
+                message_chain = MessageChain().message(summary)
+                await self.context.send_message(info.get("umo"), message_chain)
+            except Exception as e:
+                logger.error(f"发送群签到汇总失败: {e}")
+
     async def _send_private_message(self, user_id: str, user_data: dict, message: str):
         try:
             umo = user_data.get("umo")
@@ -196,6 +228,28 @@ class SklandPluginV2(Star):
                 lines.append(f"{r.game} ❌: {r.error}")
         return "\n".join(lines)
 
+    @filter.command("sklandgroup")
+    async def skland_group(self, event: AstrMessageEvent):
+        """订阅/取消订阅群签到通知"""
+        group_id = getattr(event.message_obj, "group_id", None)
+        if not group_id:
+            yield event.plain_result("请在群内使用此命令")
+            return
+
+        groups = await self.get_kv_data("sklandv2_groups", {})
+        gid = str(group_id)
+        if gid in groups:
+            del groups[gid]
+            await self.put_kv_data("sklandv2_groups", groups)
+            yield event.plain_result("✅ 已取消本群签到通知订阅")
+        else:
+            groups[gid] = {
+                "umo": event.unified_msg_origin,
+                "name": f"群{group_id}",
+            }
+            await self.put_kv_data("sklandv2_groups", groups)
+            yield event.plain_result("✅ 已订阅每日签到通知")
+
     @filter.command("skland")
     async def skland_help(self, event: AstrMessageEvent):
         """森空岛V2帮助"""
@@ -205,7 +259,7 @@ class SklandPluginV2(Star):
             "📝 命令列表:\n"
             "  /skland - 显示本帮助\n"
             "  /sklandlogin <token> - 登录并签到\n"
-            "  /sklandqrcode - 扫码登录(私聊)\n"
+            "  /sklandqrcode - 扫码登录\n"
             "  /sklandlogout - 登出\n"
             "  /sklandsign - 手动签到\n"
             "  /sklandcard - 查询角色卡片\n"
@@ -213,6 +267,7 @@ class SklandPluginV2(Star):
             "  /sklandstatus - 查看签到状态\n"
             "  /sklandgacha - 查询抽卡记录\n"
             "  /sklandimport <url> - 导入抽卡记录\n"
+            "  /sklandgroup - 订阅/取消群签到通知\n"
             "  /sklandusers - 用户统计(管理员)\n"
             "══════════════════\n"
             "📌 获取Token方法:\n"
@@ -292,11 +347,6 @@ class SklandPluginV2(Star):
     @filter.command("sklandqrcode")
     async def skland_qrcode(self, event: AstrMessageEvent):
         """扫码登录森空岛"""
-        group_id = getattr(event.message_obj, "group_id", None)
-        if group_id:
-            yield event.plain_result("请在私聊中使用此命令进行扫码登录")
-            return
-
         yield event.plain_result("正在获取二维码，请稍候...")
         try:
             scan_id = await self.api.get_scan()

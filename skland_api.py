@@ -759,18 +759,22 @@ class SklandAPI:
         if not page:
             return all_records
 
-        prev_ts, prev_pos = None, None
-        while page and page.get("gachaList"):
-            all_records.extend(page.get("gachaList", []))
+        prev_ts = None
+        prev_pos = None
+        while page:
+            gacha_list = page.get("gachaList") or page.get("list", [])
+            if not gacha_list:
+                break
+            all_records.extend(gacha_list)
             if not page.get("hasMore"):
                 break
-            next_ts = page.get("next_ts")
-            next_pos = page.get("next_pos")
+            next_ts = str(page.get("nextTs") or page.get("gachaTs") or "")
+            next_pos = page.get("nextPos") or page.get("pos")
             if (next_ts, next_pos) == (prev_ts, prev_pos):
                 break
             prev_ts, prev_pos = next_ts, next_pos
             page = await self.get_gacha_history(
                 uid, role_token, access_token, ak_cookie, category,
-                gachaTs=next_ts, pos=next_pos
+                gachaTs=next_ts or None, pos=next_pos
             )
         return all_records
