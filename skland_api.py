@@ -655,15 +655,16 @@ class SklandAPI:
 
     async def get_grant_code(self, token: str, token_type: int = 0) -> str:
         """获取授权码"""
+        app_code = "4ca99fa6b56cc2ba" if token_type == 0 else "be36d44aa36bfb5b"
         response = await self._request(
             "POST",
             "https://as.hypergryph.com/user/oauth2/v2/grant",
             headers={"User-Agent": USER_AGENT},
-            json_data={"appCode": "4ca99fa6b56cc2ba", "token": token, "type": token_type},
+            json_data={"appCode": app_code, "token": token, "type": token_type},
         )
         if response.get("status") != 0:
-            raise Exception(f"获取授权码失败: {response.get('message')}")
-        return response["data"]["code"]
+            raise Exception(f"获取授权码失败: {response.get('msg', response.get('message', '未知错误'))}")
+        return response["data"]["code"] if token_type == 0 else response["data"]["token"]
 
     async def get_role_token(self, uid: str, grant_code: str) -> str:
         """获取角色Token"""
@@ -673,8 +674,8 @@ class SklandAPI:
             headers={"User-Agent": USER_AGENT},
             json_data={"code": grant_code, "uid": uid},
         )
-        if response.get("code") != 0:
-            raise Exception(f"获取角色Token失败: {response.get('message')}")
+        if response.get("code") != 0 and response.get("status") != 0:
+            raise Exception(f"获取角色Token失败: {response.get('message', response.get('msg', '未知错误'))}")
         return response["data"]["roleToken"]
 
     async def get_ak_cookie(self, role_token: str) -> str:

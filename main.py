@@ -731,8 +731,8 @@ class SklandPluginV2(Star):
                     return
 
                 access_token = user_data.get("access_token", token)
-                auth_code = await self.api.get_grant_code(access_token, 1)
-                cred = await self.api.get_credential(auth_code)
+                grant_code = await self.api.get_grant_code(access_token, 0)
+                cred = await self.api.get_credential(grant_code)
                 bindings = await self.api.get_binding_list(cred)
 
                 ak_records = []
@@ -740,7 +740,8 @@ class SklandPluginV2(Star):
 
                 for binding in bindings:
                     if binding.app_code == "arknights":
-                        role_token = await self.api.get_role_token(binding.uid, auth_code)
+                        grant_code_for_role = await self.api.get_grant_code(access_token, 1)
+                        role_token = await self.api.get_role_token(binding.uid, grant_code_for_role)
                         ak_cookie = await self.api.get_ak_cookie(role_token)
                         categories = await self.api.get_gacha_categories(binding.uid, role_token, access_token, ak_cookie)
                         for cate in categories[:3]:
@@ -753,7 +754,8 @@ class SklandPluginV2(Star):
 
                     elif binding.app_code == "endfield":
                         for role in binding.roles:
-                            role_token = await self.api.get_role_token(binding.uid, auth_code)
+                            grant_code_for_role = await self.api.get_grant_code(access_token, 1)
+                            role_token = await self.api.get_role_token(binding.uid, grant_code_for_role)
                             server_id = role.get("serverId", binding.uid)
                             for pool_type_raw in ("char", "weapon"):
                                 try:
