@@ -33,6 +33,7 @@ import random
 import json
 
 from .skland_api import SklandAPI, UserBinding, Credential, logger as api_logger
+from .data_source import GachaTableData
 
 PLUGIN_NAME = "astrbot_plugin_sklandv2"
 GACHA_API_SEMAPHORE = asyncio.Semaphore(3)
@@ -47,6 +48,7 @@ class SklandPluginV2(Star):
         self.config = config
         self.api = SklandAPI(max_retries=3)
         self.scheduler = AsyncIOScheduler()
+        self._gacha_data = GachaTableData()
         self._init_config()
 
     def _init_config(self):
@@ -509,6 +511,9 @@ class SklandPluginV2(Star):
 
         yield event.plain_result("正在查询明日方舟抽卡记录，请稍候...")
         try:
+            # 加载卡池数据（UP角色 + gachaRuleType）
+            await self._gacha_data.load()
+
             token = user_data["token"]
             access_token = user_data.get("access_token", token)
 
@@ -580,7 +585,7 @@ class SklandPluginV2(Star):
                 for r in unique_records
             ]
 
-            grouped = group_gacha_records(record_items, getattr(self, "_gacha_data", None))
+            grouped = group_gacha_records(record_items, self._gacha_data)
 
             try:
                 from .skland_api import CRED

@@ -75,15 +75,17 @@ def _get_up_chars(pool_id: str, gacha_data: GachaTableData | None):
         detail = gacha_detail.get("gachaPoolDetail", {}).get("detailInfo", {})
         up_char = detail.get("upCharInfo")
         avail_char = detail.get("availCharInfo")
-        if up_char:
+        # 优先从 upCharInfo 获取 UP 角色
+        if up_char and up_char.get("perCharList"):
             for item in up_char.get("perCharList", []):
                 if item.get("rarityRank") == 4:
                     up_five_chars = item.get("charIdList", [])
                 elif item.get("rarityRank") == 5:
                     up_six_chars = item.get("charIdList", [])
-        if avail_char:
+        # 仅当 upCharInfo 没有六星UP时，才从 availCharInfo 取（常驻池等）
+        if not up_six_chars and avail_char and avail_char.get("perAvailList"):
             for item in avail_char.get("perAvailList", []):
-                if item.get("rarityRank") == 4:
+                if item.get("rarityRank") == 4 and not up_five_chars:
                     up_five_chars = item.get("charIdList", [])
                 elif item.get("rarityRank") == 5:
                     up_six_chars = item.get("charIdList", [])

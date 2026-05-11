@@ -13,7 +13,7 @@ class GachaTitleInfo(BaseModel):
 
 
 class GroupedGachaRecord(BaseModel):
-    GACHA_RULE_TYPES: ClassVar[dict[str, list[int]]] = {"limit": [1, 2, 3, 8], "norm": [0, 5, 9], "doub": [4, 6, 7, 10]}
+    GACHA_RULE_TYPES: ClassVar[dict[str, list[int]]] = {"limit": [1, 2, 3, 8], "norm": [0, 5, 9, 11], "doub": [4, 6, 7, 10]}
 
     pools: list[GachaPool]
     gacha_title: GachaTitleInfo | None = None
