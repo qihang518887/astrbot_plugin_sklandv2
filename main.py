@@ -443,7 +443,8 @@ class SklandPluginV2(Star):
                     ak_icon = "✅" if ak_signed else "❌"
                     ef_icon = "✅" if ef_signed else "❌"
                     message_lines.append(f" {ak_icon} | {ef_icon} | {nickname}")
-                except:
+                except Exception as e:
+                    logger.warning(f"获取用户状态失败 uid={uid}: {e}")
                     message_lines.append(" ⚠️ | ⚠️ | (Error)")
 
             yield event.plain_result("\n".join(message_lines))
@@ -628,7 +629,7 @@ class SklandPluginV2(Star):
         user_data = users.get(user_id)
 
         if not user_data:
-            yield event.plain_result("❌ 您尚未绑定，请先使用 /skland login <token> 登录")
+            yield event.plain_result("❌ 您尚未绑定，请先使用 /sklandlogin <token> 登录")
             return
 
         yield event.plain_result("正在查询终末地抽卡记录，请稍候...")
@@ -655,54 +656,163 @@ class SklandPluginV2(Star):
                 return
 
             ef_records = []
-            for role in ef_binding.roles:
-                role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
-                server_id = role.get("serverId", ef_binding.uid)
-                ef_pool_types = {
-                    "char": ["E_CharacterGachaPoolType_Standard", "E_CharacterGachaPoolType_Special", "E_CharacterGachaPoolType_Beginner"],
-                    "weapon": [""],
-                }
-                for pool_type_raw, pool_type_values in ef_pool_types.items():
-                    for pool_type_val in pool_type_values:
-                        try:
-                            is_weapon = pool_type_raw == "weapon"
-                            ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                            ef_records.extend(
-                                await self._fetch_all_ef_gacha_records(
-                                    ef_gacha_url, role_token, server_id, pool_type_val if not is_weapon else None
-                                )
-                            )
-                        except Exception:
-                            continue
+            role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
+            server_id = ef_binding.uid
+
+            # 获取角色池记录
+            char_pool_types = [
+                "E_CharacterGachaPoolType_Standard",
+                "E_CharacterGachaPoolType_Special",
+                "E_CharacterGachaPoolType_Beginner",
+            ]
+            for pool_type_val in char_pool_types:
+                try:
+                    records = await self._fetch_all_ef_gacha_records(
+                        "https://ef-webview.hypergryph.com/api/record/char",
+                        role_token, server_id, pool_type_val
+                    )
+                    for r in records:
+                        r["_item_type"] = "char"
+                    ef_records.extend(records)
+                except Exception as e:
+                    logger.warning(f"获取终末地角色池({pool_type_val})失败: {e}")
+
+            # 获取武器池记录
+            try:
+                weapon_records = await self._fetch_all_ef_gacha_records(
+                    "https://ef-webview.hypergryph.com/api/record/weapon",
+                    role_token, server_id, None
+                )
+                for r in weapon_records:
+                    r["_item_type"] = "weapon"
+                ef_records.extend(weapon_records)
+            except Exception as e:
+                logger.warning(f"获取终末地武器池失败: {e}")
 
             if not ef_records:
                 yield event.plain_result("❌ 暂无终末地抽卡记录")
                 return
 
-            pools_dict = {}
-            for record in ef_records[:100]:
-                pool_name = record.get("poolName", "未知")
-                if pool_name not in pools_dict:
-                    pools_dict[pool_name] = []
-                pools_dict[pool_name].append({
-                    "name": record.get("charName", "未知"),
-                    "rarity": record.get("rarity", 3),
-                    "is_new": record.get("isNew", False),
-                })
+            # 去重
+            seen = set()
+            unique_records = []
+            for r in ef_records:
+                seq_id = r.get("seqId", "")
+                gacha_ts = r.get("gachaTs", "")
+                key = (seq_id, gacha_ts)
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique_records.append(r)
 
-            pools = []
-            for name, pulls in pools_dict.items():
-                pools.append({
-                    "name": name[:20],
-                    "count": len(pulls),
-                    "pulls": pulls[:20]
-                })
+            # 分组
+            from .schemas.endfield.gacha.base import EfGachaPull, EfGachaGroup
+            from .schemas.endfield.gacha.pool import EfGachaPoolInfo
+            from .schemas.endfield.gacha.statistics import EfGroupedGachaRecord
+            from .render import render_ef_gacha_history
 
-            total_pulls = len(ef_records)
-            yield event.plain_result(self._format_gacha_text(pools, total_pulls, 0))
+            grouped = self._group_ef_records(unique_records)
+
+            # 构建 character model
+            char_model = type("Character", (), {
+                "nickname": ef_binding.nickname,
+                "role_id": ef_binding.uid,
+            })()
+
+            img_data = await render_ef_gacha_history(
+                record=grouped,
+                character=char_model,
+                avatar_url="",
+            )
+
+            if img_data:
+                yield event.chain_result([Comp.Image.fromBytes(img_data)])
+            else:
+                yield event.plain_result(f"📊 终末地抽卡统计\n总抽数: {grouped.total_pulls}")
         except Exception as e:
             logger.error(f"查询终末地抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
+
+    def _group_ef_records(self, records: list[dict]):
+        """将终末地原始记录按卡池分组"""
+        from collections import defaultdict
+        from .schemas.endfield.gacha.base import EfGachaPull, EfGachaGroup
+        from .schemas.endfield.gacha.pool import EfGachaPoolInfo
+        from .schemas.endfield.gacha.statistics import EfGroupedGachaRecord
+
+        temp_grouped = defaultdict(lambda: defaultdict(list))
+        for r in records:
+            pool_id = r.get("poolId", "unknown")
+            gacha_ts = int(r.get("gachaTs", "0")) // 1000
+            temp_grouped[pool_id][gacha_ts].append(r)
+
+        beginner_pools = []
+        standard_pools = []
+        special_pools = []
+        weapon_pools = []
+
+        for pool_id, ts_dict in temp_grouped.items():
+            gacha_groups = []
+            for gacha_ts, pulls_raw in ts_dict.items():
+                pulls = []
+                for p in pulls_raw:
+                    item_type = p.get("_item_type", "char")
+                    if item_type == "weapon":
+                        item_id = p.get("weaponId", "")
+                        item_name = p.get("weaponName", "")
+                    else:
+                        item_id = p.get("charId", "")
+                        item_name = p.get("charName", "")
+                    pulls.append(EfGachaPull(
+                        pool_name=p.get("poolName", ""),
+                        item_id=item_id,
+                        item_name=item_name,
+                        item_type=item_type,
+                        rarity=p.get("rarity", 3),
+                        is_new=p.get("isNew", False),
+                        is_free=p.get("isFree", False),
+                        seq_id=int(p.get("seqId", "0")),
+                    ))
+                gacha_groups.append(EfGachaGroup(gacha_ts=gacha_ts, pulls=pulls))
+
+            first_pull = gacha_groups[0].pulls[0] if gacha_groups and gacha_groups[0].pulls else None
+            pool_name = first_pull.pool_name if first_pull else pool_id
+            pool_type = first_pull.item_type if first_pull else "char"
+
+            pool_info = EfGachaPoolInfo(
+                pool_id=pool_id,
+                pool_name=pool_name,
+                pool_type=pool_type,
+                records=gacha_groups,
+            )
+
+            category = self._infer_ef_pool_category(pool_id)
+            if category == "beginner":
+                beginner_pools.append(pool_info)
+            elif category == "special":
+                special_pools.append(pool_info)
+            elif category == "weapon":
+                weapon_pools.append(pool_info)
+            else:
+                standard_pools.append(pool_info)
+
+        return EfGroupedGachaRecord(
+            beginner_pools=beginner_pools,
+            standard_pools=standard_pools,
+            special_pools=special_pools,
+            weapon_pools=weapon_pools,
+        )
+
+    def _infer_ef_pool_category(self, pool_id: str) -> str:
+        """根据 pool_id 推导卡池类别"""
+        pid = pool_id.lower()
+        if pid.startswith("special"):
+            return "special"
+        if pid.startswith("weapon") or pid.startswith("wepon"):
+            return "weapon"
+        if pid == "beginner":
+            return "beginner"
+        return "standard"
 
     async def _fetch_all_ef_gacha_records(self, url: str, role_token: str, server_id: str, pool_type: str | None) -> list:
         records = []

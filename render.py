@@ -125,4 +125,34 @@ async def render_gacha_history(
     )
 
 
+async def render_ef_gacha_history(
+    record,
+    character,
+    avatar_url: str = "",
+    start_index: int = None,
+    end_index: int = None,
+) -> Optional[bytes]:
+    """使用nonebot样式渲染终末地抽卡历史记录"""
+    from .filters import format_timestamp_md, ef_charId_to_avatarUrl
+
+    renderer = Renderer()
+    ctx = {
+        "record": record,
+        "character": character,
+        "avatar_url": avatar_url,
+        "start_index": start_index,
+        "end_index": end_index,
+    }
+    flt = {
+        "format_timestamp_md": format_timestamp_md,
+        "ef_charId_to_avatarUrl": ef_charId_to_avatarUrl,
+    }
+    return await renderer.render_template(
+        "ef_gacha.html.jinja2",
+        ctx,
+        filters=flt,
+        viewport={"width": 800, "height": 1},
+    )
+
+
 renderer = Renderer()

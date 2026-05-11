@@ -25,3 +25,10 @@ def charId_to_avatarUrl(charId: str, cache_dir: Path | None = None) -> str:
 
 def loads_json(json_str: str) -> dict:
     return json.loads(json_str)
+
+
+def ef_charId_to_avatarUrl(item_id: str) -> str:
+    """终末地角色/武器头像URL拼接"""
+    if item_id.startswith("wpn_"):
+        return f"https://lulush.microgg.cn/BeyondUID/resource/itemiconbig/{item_id}.png"
+    return f"https://lulush.microgg.cn/BeyondUID/resource/charremoteicon/icon_{item_id}.png"
