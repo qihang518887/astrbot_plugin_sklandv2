@@ -657,7 +657,7 @@ class SklandPluginV2(Star):
 
             ef_records = []
             role_token = await self.api.get_role_token(ef_binding.uid, grant_code_web)
-            server_id = ef_binding.uid
+            server_id = ef_binding.channel_master_id or ef_binding.uid
 
             # 获取角色池记录
             char_pool_types = [
@@ -910,24 +910,23 @@ class SklandPluginV2(Star):
                     elif binding.app_code == "endfield":
                         grant_code_web = await self.api.get_grant_code(access_token, 1)
                         role_token = await self.api.get_role_token(binding.uid, grant_code_web)
-                        for role in binding.roles:
-                            server_id = role.get("serverId", binding.uid)
-                            ef_pool_types = {
-                                "char": ["E_CharacterGachaPoolType_Standard", "E_CharacterGachaPoolType_Special", "E_CharacterGachaPoolType_Beginner"],
-                                "weapon": [""],
-                            }
-                            for pool_type_raw, pool_type_values in ef_pool_types.items():
-                                for pool_type_val in pool_type_values:
-                                    try:
-                                        is_weapon = pool_type_raw == "weapon"
-                                        ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                                        ef_records.extend(
-                                            await self._fetch_all_ef_gacha_records(
-                                                ef_gacha_url, role_token, server_id, pool_type_val if not is_weapon else None
-                                            )
+                        server_id = binding.channel_master_id or binding.uid
+                        ef_pool_types = {
+                            "char": ["E_CharacterGachaPoolType_Standard", "E_CharacterGachaPoolType_Special", "E_CharacterGachaPoolType_Beginner"],
+                            "weapon": [""],
+                        }
+                        for pool_type_raw, pool_type_values in ef_pool_types.items():
+                            for pool_type_val in pool_type_values:
+                                try:
+                                    is_weapon = pool_type_raw == "weapon"
+                                    ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                                    ef_records.extend(
+                                        await self._fetch_all_ef_gacha_records(
+                                            ef_gacha_url, role_token, server_id, pool_type_val if not is_weapon else None
                                         )
-                                    except Exception as inner_e:
-                                        logger.error(f"[auto_import] 终末地抽卡拉取失败: {inner_e}")
+                                    )
+                                except Exception as inner_e:
+                                    logger.error(f"[auto_import] 终末地抽卡拉取失败: {inner_e}")
 
                 summary_parts = []
                 if ak_records:
@@ -997,23 +996,22 @@ class SklandPluginV2(Star):
 
                 elif binding.app_code == "endfield":
                     role_token = await self.api.get_role_token(binding.uid, grant_code_web)
+                    server_id = binding.channel_master_id or binding.uid
                     ef_records = []
-                    for role in binding.roles:
-                        server_id = role.get("serverId", binding.uid)
-                        for pool_type_raw in ("char", "weapon"):
-                            try:
-                                is_weapon = pool_type_raw == "weapon"
-                                ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
-                                params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
-                                client = await self.api._get_client()
-                                response = await client.get(ef_gacha_url, params=params)
-                                data = response.json()
-                                if data.get("code") == 0 and data.get("data"):
-                                    gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
-                                    for item in (gacha_list or []):
-                                        ef_records.append(item)
-                            except Exception:
-                                continue
+                    for pool_type_raw in ("char", "weapon"):
+                        try:
+                            is_weapon = pool_type_raw == "weapon"
+                            ef_gacha_url = "https://ef-webview.hypergryph.com/api/record/weapon" if is_weapon else "https://ef-webview.hypergryph.com/api/record/char"
+                            params = {"token": role_token, "server_id": server_id, "lang": "zh-cn"}
+                            client = await self.api._get_client()
+                            response = await client.get(ef_gacha_url, params=params)
+                            data = response.json()
+                            if data.get("code") == 0 and data.get("data"):
+                                gacha_list = data["data"].get("gachaList") or data["data"].get("list", [])
+                                for item in (gacha_list or []):
+                                    ef_records.append(item)
+                        except Exception as e:
+                            logger.warning(f"[sklandimport] 终末地抽卡拉取失败({pool_type_raw}): {e}")
                     import_results.append(("终末地", len(ef_records), ef_records))
 
             summary = []

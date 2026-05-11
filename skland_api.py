@@ -104,6 +104,7 @@ class UserBinding:
     channel_name: str
     uid: str
     game_id: int
+    channel_master_id: str = ""
     roles: list[dict] = field(default_factory=list)
 
 
@@ -407,6 +408,12 @@ class SklandAPI:
                 continue
 
             for binding in item.get("bindingList", []):
+                # server_id: 优先从 roles[0].serverId 取，否则用 channelMasterId
+                roles = binding.get("roles", [])
+                if roles and roles[0].get("serverId"):
+                    channel_master_id = roles[0]["serverId"]
+                else:
+                    channel_master_id = binding.get("channelMasterId", "")
                 bindings.append(
                     UserBinding(
                         app_code=app_code,
@@ -415,7 +422,8 @@ class SklandAPI:
                         channel_name=binding.get("channelName", "Unknown"),
                         uid=binding.get("uid", ""),
                         game_id=binding.get("gameId", 1),
-                        roles=binding.get("roles", []),
+                        channel_master_id=channel_master_id,
+                        roles=roles,
                     )
                 )
 
