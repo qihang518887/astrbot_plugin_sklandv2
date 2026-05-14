@@ -39,7 +39,7 @@ PLUGIN_NAME = "astrbot_plugin_sklandv2"
 GACHA_API_SEMAPHORE = asyncio.Semaphore(3)
 
 
-@register(PLUGIN_NAME, "AstrBot", "森空岛V2插件(明日方舟/终末地)", "2.0.1")
+@register(PLUGIN_NAME, "AstrBot", "森空岛V2插件(明日方舟/终末地)", "2.0.2")
 class SklandPluginV2(Star):
     """森空岛签到和数据查询插件V2"""
 
@@ -164,16 +164,12 @@ class SklandPluginV2(Star):
                     elif r.game == "终末地" and self._is_signed_today(r):
                         user_data.setdefault("last_sign", {})["endfield"] = datetime.now().strftime("%Y-%m-%d")
 
-                message = f"🎮 森空岛自动签到结果\n\n{self._format_sign_status(results, nickname)}"
-                await self._send_private_message(user_id, user_data, message)
                 users[user_id] = user_data
                 success_count += 1
                 logger.info(f"用户 {user_id} ({nickname}) 自动签到完成")
             except Exception as e:
                 logger.error(f"用户 {user_id} 自动签到失败: {e}")
                 fail_count += 1
-                message = f"⚠️ 自动签到失败\n错误: {str(e)}\n请重新登录"
-                await self._send_private_message(user_id, user_data, message)
 
         await self.put_kv_data("sklandv2_users", users)
         logger.info(f"自动签到执行完毕: 成功 {success_count}, 失败 {fail_count}")
@@ -188,8 +184,7 @@ class SklandPluginV2(Star):
         total = success_count + fail_count
         summary = (
             f"✅ 森空岛今日自动签到已完成！\n"
-            f"📊 共 {total} 人: 成功 {success_count} / 失败 {fail_count}\n"
-            f"📩 个人签到详情已私信通知各用户"
+            f"📊 共 {total} 人: 成功 {success_count} / 失败 {fail_count}"
         )
 
         for group_id, info in groups.items():
