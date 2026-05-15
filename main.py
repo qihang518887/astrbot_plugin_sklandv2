@@ -33,13 +33,13 @@ import random
 import json
 
 from .skland_api import SklandAPI, UserBinding, Credential, logger as api_logger
-from .data_source import GachaTableData
+from .data_source import GachaTableData, ef_gacha_pool_data
 
 PLUGIN_NAME = "astrbot_plugin_sklandv2"
 GACHA_API_SEMAPHORE = asyncio.Semaphore(3)
 
 
-@register(PLUGIN_NAME, "AstrBot", "森空岛V2插件(明日方舟/终末地)", "2.0.2")
+@register(PLUGIN_NAME, "AstrBot", "森空岛V2插件(明日方舟/终末地)", "2.1.0")
 class SklandPluginV2(Star):
     """森空岛签到和数据查询插件V2"""
 
@@ -706,7 +706,16 @@ class SklandPluginV2(Star):
             from .schemas.endfield.gacha.statistics import EfGroupedGachaRecord
             from .render import render_ef_gacha_history
 
+            # 加载终末地卡池数据（含新卡池信息）
+            try:
+                await ef_gacha_pool_data.load()
+            except Exception as e:
+                logger.warning(f"终末地卡池数据加载失败: {e}")
+
             grouped = self._group_ef_records(unique_records)
+
+            # 为每个卡池补充 UP 信息（优先用本地，缺失时调 API 兜底）
+            await self._apply_ef_pool_info(grouped, server_id)
 
             # 构建 character model
             char_model = type("Character", (), {
@@ -728,8 +737,55 @@ class SklandPluginV2(Star):
             logger.error(f"查询终末地抽卡失败: {e}")
             yield event.plain_result(f"❌ 查询失败: {str(e)}")
 
+    async def _apply_ef_pool_info(self, grouped, server_id: str):
+        """为每个 SPECIAL / WEAPON 卡池补充 UP 角色信息
+
+        优先使用本地 GachaPoolTable 数据，缺失时调用 Content API 兜底。
+        """
+        target_pools = list(grouped.special_pools) + list(grouped.weapon_pools)
+        for pool in target_pools:
+            local_pool = ef_gacha_pool_data.get_pool(pool.pool_id)
+            if local_pool:
+                pool.up_six_chars = local_pool.up_six_char_ids
+                pool.up6_img = local_pool.up6_image or local_pool.rotate_image
+                pool.up6_name = local_pool.up6_name
+                continue
+
+            # 本地无数据，调 API 兜底
+            try:
+                content = await self.api.get_ef_gacha_content(pool.pool_id, server_id)
+                if not content:
+                    continue
+                pool_data = content.get("pool", {})
+                if not pool_data:
+                    continue
+                # 解析 up6 信息
+                up6_name = pool_data.get("up6_name", "")
+                up6_image = pool_data.get("up6_image", "")
+                rotate_image = pool_data.get("rotate_image", "")
+                all_items = pool_data.get("all", []) or []
+                up_ids = []
+                if up6_name:
+                    for item in all_items:
+                        if not isinstance(item, dict):
+                            continue
+                        if item.get("rarity") == 6 and item.get("name") == up6_name:
+                            up_ids.append(item.get("id", ""))
+                pool.up_six_chars = [i for i in up_ids if i]
+                pool.up6_img = up6_image or rotate_image
+                pool.up6_name = up6_name
+                logger.info(f"卡池 {pool.pool_name}({pool.pool_id}) UP信息已通过 API 兜底获取")
+            except Exception as e:
+                logger.warning(f"获取卡池 {pool.pool_name}({pool.pool_id}) UP信息失败: {e}")
+
     def _group_ef_records(self, records: list[dict]):
-        """将终末地原始记录按卡池分组"""
+        """将终末地原始记录按卡池分组
+
+        分类策略：
+        1. 优先使用本地 GachaPoolTable 数据中的 pool_type（最可靠，新卡池也覆盖）
+        2. 其次根据物品类型（weapon → 武器池）
+        3. 最后根据 pool_id 命名推断（fallback）
+        """
         from collections import defaultdict
         from .schemas.endfield.gacha.base import EfGachaPull, EfGachaGroup
         from .schemas.endfield.gacha.pool import EfGachaPoolInfo
@@ -781,7 +837,7 @@ class SklandPluginV2(Star):
                 records=gacha_groups,
             )
 
-            category = self._infer_ef_pool_category(pool_id)
+            category = self._classify_ef_pool(pool_id, pool_type)
             if category == "beginner":
                 beginner_pools.append(pool_info)
             elif category == "special":
@@ -798,8 +854,24 @@ class SklandPluginV2(Star):
             weapon_pools=weapon_pools,
         )
 
+    def _classify_ef_pool(self, pool_id: str, item_type: str = "char") -> str:
+        """卡池分类：先查本地 GachaPoolTable，再按物品类型，最后按 pool_id 推断"""
+        # 1. 本地 GachaPoolTable 数据（最可靠）
+        local_pool = ef_gacha_pool_data.get_pool(pool_id)
+        if local_pool:
+            cat = local_pool.category
+            if cat in ("special", "standard", "beginner", "weapon"):
+                return cat
+
+        # 2. 武器物品 → 武器池
+        if item_type == "weapon":
+            return "weapon"
+
+        # 3. pool_id 命名兜底
+        return self._infer_ef_pool_category(pool_id)
+
     def _infer_ef_pool_category(self, pool_id: str) -> str:
-        """根据 pool_id 推导卡池类别"""
+        """根据 pool_id 推导卡池类别（最后的 fallback）"""
         pid = pool_id.lower()
         if pid.startswith("special"):
             return "special"

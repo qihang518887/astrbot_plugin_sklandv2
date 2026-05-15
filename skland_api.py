@@ -607,6 +607,36 @@ class SklandAPI:
             logger.error(f"获取终末地卡片失败: {e}")
             return None
 
+    async def get_ef_gacha_content(self, pool_id: str, server_id: str) -> Optional[dict]:
+        """获取终末地卡池内容（UP角色信息）
+
+        当本地 GachaPoolTable 数据没有该卡池时使用此 API 兜底。
+
+        Args:
+            pool_id: 卡池ID（如 special_xxx, weaponbox_xxx）
+            server_id: 服务器ID（同抽卡接口的 server_id）
+
+        Returns:
+            含 pool 字段的响应 data，失败返回 None
+        """
+        url = "https://ef-webview.hypergryph.com/api/content"
+        params = {
+            "pool_id": pool_id,
+            "server_id": server_id,
+            "lang": "zh-cn",
+        }
+        try:
+            client = await self._get_client()
+            response = await client.get(url, params=params)
+            data = response.json()
+            if data.get("code") != 0:
+                logger.warning(f"获取终末地卡池内容失败: {data.get('message')}")
+                return None
+            return data.get("data")
+        except Exception as e:
+            logger.warning(f"获取终末地卡池内容失败 ({pool_id}): {e}")
+            return None
+
     async def get_rogue_data(self, cred: Credential, uid: str, topic_id: str) -> Optional[dict]:
         """获取肉鸽数据"""
         did = await self.get_device_id()
